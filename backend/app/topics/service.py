@@ -261,18 +261,38 @@ def identificar_tema_automatico(conteudo_original: str, resumo: str) -> str:
     
     # Se não, cria título baseado nas palavras principais
     if palavras_principais:
-        # Pega as 2-3 palavras mais relevantes
-        palavras_titulo = palavras_principais[:3]
-        titulo = " ".join(palavras_titulo).title()
+        # Remove duplicatas e palavras muito similares
+        palavras_unicas = []
+        palavras_vistas = set()
+        for palavra in palavras_principais:
+            # Normaliza a palavra (remove variações)
+            palavra_normalizada = palavra.lower().strip()
+            # Evita palavras muito similares (ex: "amigo" e "amigos")
+            if palavra_normalizada not in palavras_vistas:
+                # Verifica se não é variação de palavra já vista
+                is_variacao = any(
+                    palavra_normalizada.startswith(p[:4]) or p.startswith(palavra_normalizada[:4])
+                    for p in palavras_vistas
+                )
+                if not is_variacao:
+                    palavras_unicas.append(palavra)
+                    palavras_vistas.add(palavra_normalizada)
         
-        # Se o título for muito curto, adiciona contexto
-        if len(titulo) < 15:
-            # Tenta pegar uma frase do conteúdo original
-            primeira_sentenca = conteudo_original.split(".")[0].strip()
-            if 30 <= len(primeira_sentenca) <= 80:
-                return primeira_sentenca[:60]
-        
-        return titulo
+        # Pega as 2-3 palavras mais relevantes (únicas)
+        palavras_titulo = palavras_unicas[:3]
+        if palavras_titulo:
+            titulo = " ".join(palavras_titulo).title()
+            # Limpa espaços múltiplos
+            titulo = re.sub(r"\s+", " ", titulo).strip()
+            
+            # Se o título for muito curto, adiciona contexto
+            if len(titulo) < 15:
+                # Tenta pegar uma frase do conteúdo original
+                primeira_sentenca = conteudo_original.split(".")[0].strip()
+                if 30 <= len(primeira_sentenca) <= 80:
+                    return primeira_sentenca[:60]
+            
+            return titulo
     
     # Fallback: usa início do conteúdo
     primeira_parte = conteudo_original[:70].strip()
@@ -450,21 +470,52 @@ def gerar_topicos_simples(texto: str) -> str:
         
         # Cria título baseado nas palavras principais ou primeira sentença
         if palavras_principais:
-            titulo = " ".join(palavras_principais[:3]).title()
-            if len(titulo) < 10:
-                # Se título muito curto, usa primeira sentença
+            # Remove duplicatas e palavras muito similares
+            palavras_unicas = []
+            palavras_vistas = set()
+            for palavra in palavras_principais:
+                palavra_normalizada = palavra.lower().strip()
+                # Evita palavras muito similares (ex: "amigo" e "amigos")
+                if palavra_normalizada not in palavras_vistas:
+                    is_variacao = any(
+                        palavra_normalizada.startswith(p[:4]) or p.startswith(palavra_normalizada[:4])
+                        for p in palavras_vistas
+                    )
+                    if not is_variacao:
+                        palavras_unicas.append(palavra)
+                        palavras_vistas.add(palavra_normalizada)
+            
+            if palavras_unicas:
+                titulo = " ".join(palavras_unicas[:3]).title()
+                # Limpa espaços múltiplos e caracteres estranhos
+                titulo = re.sub(r"\s+", " ", titulo).strip()
+                
+                if len(titulo) < 10:
+                    # Se título muito curto, usa primeira sentença
+                    primeira_sentenca = sentencas_topo[0].strip()
+                    if len(primeira_sentenca) > 20:
+                        titulo = primeira_sentenca[:60].rstrip(".,!?")
+                        titulo = re.sub(r"\s+", " ", titulo).strip()
+            else:
+                # Fallback se não houver palavras únicas
                 primeira_sentenca = sentencas_topo[0].strip()
-                if len(primeira_sentenca) > 20:
-                    titulo = primeira_sentenca[:60].rstrip(".,!?")
+                titulo = primeira_sentenca[:60].rstrip(".,!?") if len(primeira_sentenca) > 20 else f"Tópico {i + 1}"
         else:
             # Usa primeira sentença como título
             primeira_sentenca = sentencas_topo[0].strip()
             titulo = primeira_sentenca[:60].rstrip(".,!?") if len(primeira_sentenca) > 20 else f"Tópico {i + 1}"
+            titulo = re.sub(r"\s+", " ", titulo).strip()
         
         resultado += f"## {i + 1}. {titulo}\n\n"
         resultado += "💡 **Análise:**\n"
-        if palavras_principais:
-            resultado += f"Este tópico aborda aspectos relacionados a {', '.join(palavras_principais[:3])}. "
+        # Cria análise mais inteligente baseada no conteúdo
+        if palavras_principais and len(palavras_principais) > 0:
+            # Remove duplicatas para a análise também
+            palavras_analise = list(dict.fromkeys(palavras_principais[:3]))  # Mantém ordem, remove duplicatas
+            if palavras_analise:
+                resultado += f"Este tópico aborda aspectos relacionados a {', '.join(palavras_analise)}. "
+            else:
+                resultado += "Este tópico aborda aspectos importantes do conteúdo apresentado. "
         else:
             resultado += "Este tópico aborda aspectos importantes do conteúdo apresentado. "
         resultado += "O conteúdo desenvolve ideias importantes sobre este tema.\n\n"

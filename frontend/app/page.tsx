@@ -218,6 +218,34 @@ export default function Home() {
     audioChunksRef.current = [];
   };
 
+  const handleDownload = async (downloadUrl: string, filename: string) => {
+    try {
+      const response = await fetch(`${apiUrl}${downloadUrl}`, {
+        method: "GET",
+        headers: {
+          "X-API-TOKEN": apiToken,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`Erro ao baixar arquivo: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      window.URL.revokeObjectURL(url);
+      document.body.removeChild(a);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erro ao baixar arquivo");
+      setStatus("error");
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 p-4">
       <div className="max-w-4xl mx-auto">
@@ -325,13 +353,12 @@ export default function Home() {
                 <h2 className="text-xl font-semibold text-gray-800 mb-4">Resultado</h2>
 
                 <div className="mb-4">
-                  <a
-                    href={`${apiUrl}${result.download_url}`}
-                    download
-                    className="inline-block px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg font-medium transition-colors shadow-md"
+                  <button
+                    onClick={() => handleDownload(result.download_url, result.markdown_file)}
+                    className="px-4 py-2 bg-indigo-500 hover:bg-indigo-600 text-white rounded-lg font-medium transition-colors shadow-md"
                   >
                     📥 Baixar Markdown ({result.markdown_file})
-                  </a>
+                  </button>
                 </div>
 
                 <div className="space-y-4">
