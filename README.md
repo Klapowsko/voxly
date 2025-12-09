@@ -20,6 +20,7 @@ A arquitetura modular permite fácil extração em microserviços no futuro.
 - Docker e Docker Compose instalados
 - Navegador moderno com suporte a MediaRecorder API
 - (Opcional) Ollama instalado e rodando para melhor qualidade na geração de tópicos
+- (Recomendado para áudios longos) GPU NVIDIA com CUDA para processamento mais rápido
 
 ## 🚀 Início Rápido
 
@@ -84,6 +85,21 @@ Após o processamento, você verá:
 - A transcrição completa do áudio
 - Os tópicos organizados em Markdown
 - Um botão para baixar o arquivo `.md` (compatível com Obsidian)
+
+### Áudios Longos
+
+O sistema suporta áudios de qualquer duração, incluindo:
+- **Palestras de 20-30 minutos**
+- **Sermões de 1 hora ou mais**
+- **Vídeos longos** (o Whisper extrai o áudio automaticamente)
+
+**Notas importantes:**
+- Áudios longos podem levar mais tempo para processar (especialmente em CPU)
+- Com GPU, o processamento é significativamente mais rápido
+- O Whisper processa automaticamente áudios longos em segmentos, **sem limite rígido de duração**
+- Recomenda-se usar modelo `base` ou `small` para áudios muito longos (mais rápido)
+- Modelos `medium` ou `large` oferecem melhor qualidade, mas são mais lentos
+- O sistema remove automaticamente repetições excessivas da transcrição
 
 ## 🔧 Configuração
 

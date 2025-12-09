@@ -93,21 +93,27 @@ def formatar_resultado_ia(texto: str) -> str:
     return texto.strip()
 
 
-def usar_ollama(texto: str, modelo: str = "llama3.2", ollama_url: str = "http://localhost:11434") -> str | None:
+def usar_ollama(texto: str, modelo: str = "llama3.2", ollama_url: str = "http://localhost:11434", request_id: str | None = None) -> str | None:
     """Usa Ollama para gerar tópicos (requer servidor Ollama rodando)."""
     try:
         import ollama
     except ImportError:
+        print(f"[{request_id or 'N/A'}] Ollama não disponível (biblioteca não instalada)")
         return None
     
     # Usa o texto completo ou o máximo que o modelo suportar
     # Para modelos grandes, podemos usar textos muito longos
     # Limite aumentado significativamente para suportar áudios longos
     texto_limitado = texto[:100000] if len(texto) > 100000 else texto
+    if len(texto) > 100000:
+        print(f"[{request_id or 'N/A'}] Texto limitado para {len(texto_limitado)} caracteres (original: {len(texto)})")
+    
     prompt = PROMPT_TOPICOS.format(texto=texto_limitado)
+    print(f"[{request_id or 'N/A'}] Enviando prompt para Ollama (tamanho: {len(prompt)} caracteres)...")
     
     try:
         # Tenta usar a biblioteca ollama
+        print(f"[{request_id or 'N/A'}] Chamando Ollama.chat() com modelo {modelo}...")
         response = ollama.chat(
             model=modelo,
             messages=[
@@ -126,10 +132,13 @@ def usar_ollama(texto: str, modelo: str = "llama3.2", ollama_url: str = "http://
             }
         )
         resultado = response["message"]["content"]
+        print(f"[{request_id or 'N/A'}] Resposta recebida do Ollama: {len(resultado)} caracteres")
         return formatar_resultado_ia(resultado)
-    except Exception:
+    except Exception as e:
+        print(f"[{request_id or 'N/A'}] Erro ao usar biblioteca Ollama: {e}")
         # Se falhar, tenta usar API HTTP diretamente
         try:
+            print(f"[{request_id or 'N/A'}] Tentando usar API HTTP do Ollama...")
             import requests
             response = requests.post(
                 f"{ollama_url}/api/chat",
@@ -152,33 +161,41 @@ def usar_ollama(texto: str, modelo: str = "llama3.2", ollama_url: str = "http://
             )
             if response.status_code == 200:
                 resultado = response.json()["message"]["content"]
+                print(f"[{request_id or 'N/A'}] Resposta recebida via HTTP: {len(resultado)} caracteres")
                 return formatar_resultado_ia(resultado)
-        except Exception:
-            pass
-        
-        return None
+            else:
+                print(f"[{request_id or 'N/A'}] Erro HTTP do Ollama: {response.status_code}")
+        except Exception as e:
+            print(f"[{request_id or 'N/A'}] Erro ao usar API HTTP do Ollama: {e}")
+            return None
+    
+    return None
 
 
-def usar_huggingface(texto: str) -> str | None:
+def usar_huggingface(texto: str, request_id: str | None = None) -> str | None:
     """Usa Hugging Face Transformers para análise e organização."""
     try:
         from transformers import pipeline
     except ImportError:
+        print(f"[{request_id or 'N/A'}] Hugging Face não disponível (biblioteca não instalada)")
         return None
     
     try:
+        print(f"[{request_id or 'N/A'}] Carregando modelo Hugging Face (pode demorar na primeira vez)...")
         # Usa um modelo de sumarização para extrair pontos-chave
         summarizer = pipeline(
             "summarization",
             model="facebook/bart-large-cnn",
             device=-1  # CPU
         )
+        print(f"[{request_id or 'N/A'}] Modelo Hugging Face carregado")
         
         # Divide o texto em chunks menores para processar mais conteúdo
         # Chunks menores permitem mais tópicos
         palavras = texto.split()
         palavras_por_chunk = 400  # Chunks menores para mais granularidade
         num_chunks = max(10, len(palavras) // palavras_por_chunk)  # Mínimo 10 chunks, mais se necessário
+        print(f"[{request_id or 'N/A'}] Dividindo texto em {num_chunks} chunks...")
         
         chunks = []
         for i in range(0, len(palavras), palavras_por_chunk):
@@ -191,6 +208,11 @@ def usar_huggingface(texto: str) -> str | None:
         
         for i, chunk in enumerate(chunks):
             try:
+                if request_id and (i + 1) % 3 == 0:  # Atualiza a cada 3 chunks
+                    progresso = 75 + int((i + 1) / len(chunks) * 15)
+                    from app.utils.status import set_status
+                    set_status(request_id, "generating", progresso, f"Processando chunk {i + 1}/{len(chunks)}...")
+                
                 # Gera resumo do chunk
                 resultado = summarizer(
                     chunk,
@@ -210,7 +232,8 @@ def usar_huggingface(texto: str) -> str | None:
                     "conteudo_original": chunk[:500],  # Primeiros 500 caracteres do conteúdo original
                     "indice": i
                 })
-            except Exception:
+            except Exception as e:
+                print(f"[{request_id or 'N/A'}] Erro ao processar chunk {i + 1}: {e}")
                 continue
         
         if topicos_com_conteudo:
@@ -549,35 +572,79 @@ def gerar_topicos_simples(texto: str) -> str:
 
 
 async def generate_topics_markdown(
-    transcript: str, settings: Settings, request_id: str
+    transcript: str, settings: Settings, request_id: str, request_id_status: str | None = None
 ) -> tuple[str, Path]:
     """Gera conteúdo em Markdown usando modelos open source (Ollama/Hugging Face/método simples)."""
     output_path = settings.outputs_dir / f"{request_id}_topics.md"
     
     def _run() -> tuple[str, Path]:
+        import time
+        from app.utils.status import set_status
+        
         resultado = None
+        start_time = time.time()
+        tamanho_texto = len(transcript)
+        num_palavras = len(transcript.split())
+        
+        print(f"[{request_id_status or request_id}] Iniciando geração de tópicos...")
+        print(f"[{request_id_status or request_id}] Tamanho do texto: {tamanho_texto} caracteres, ~{num_palavras} palavras")
+        
+        if request_id_status:
+            set_status(request_id_status, "generating", 70, f"Analisando texto ({num_palavras} palavras)...")
         
         # Tenta Ollama primeiro
         if settings.ollama_model:
-            resultado = usar_ollama(transcript, settings.ollama_model, settings.ollama_url)
+            print(f"[{request_id_status or request_id}] Tentando usar Ollama (modelo: {settings.ollama_model})...")
+            if request_id_status:
+                set_status(request_id_status, "generating", 75, f"Gerando tópicos com Ollama ({settings.ollama_model})...")
+            
+            resultado = usar_ollama(transcript, settings.ollama_model, settings.ollama_url, request_id_status)
             if resultado:
+                print(f"[{request_id_status or request_id}] ✓ Tópicos gerados com Ollama ({len(resultado)} caracteres)")
+                if request_id_status:
+                    set_status(request_id_status, "generating", 90, f"Tópicos gerados com Ollama ({len(resultado)} caracteres)")
                 output_path.write_text(resultado, encoding="utf-8")
                 return resultado, output_path
+            else:
+                print(f"[{request_id_status or request_id}] Ollama não disponível ou falhou")
         
         # Se Ollama não funcionou, tenta Hugging Face
         if not resultado:
-            resultado = usar_huggingface(transcript)
+            print(f"[{request_id_status or request_id}] Tentando usar Hugging Face...")
+            if request_id_status:
+                set_status(request_id_status, "generating", 75, "Gerando tópicos com Hugging Face...")
+            
+            resultado = usar_huggingface(transcript, request_id_status)
             if resultado:
+                print(f"[{request_id_status or request_id}] ✓ Tópicos gerados com Hugging Face ({len(resultado)} caracteres)")
+                if request_id_status:
+                    set_status(request_id_status, "generating", 90, f"Tópicos gerados com Hugging Face ({len(resultado)} caracteres)")
                 output_path.write_text(resultado, encoding="utf-8")
                 return resultado, output_path
+            else:
+                print(f"[{request_id_status or request_id}] Hugging Face não disponível ou falhou")
         
         # Fallback para método simples
         if not resultado or len(resultado.strip()) < 100:
+            print(f"[{request_id_status or request_id}] Usando método simples (fallback)...")
+            if request_id_status:
+                set_status(request_id_status, "generating", 80, "Gerando tópicos com método simples...")
+            
             resultado = gerar_topicos_simples(transcript)
+            print(f"[{request_id_status or request_id}] ✓ Tópicos gerados com método simples ({len(resultado)} caracteres)")
         
         # Garante que o resultado não está vazio
         if not resultado or len(resultado.strip()) < 50:
+            print(f"[{request_id_status or request_id}] Resultado muito curto, regenerando...")
             resultado = gerar_topicos_simples(transcript)
+        
+        elapsed = time.time() - start_time
+        print(f"[{request_id_status or request_id}] Geração de tópicos concluída em {elapsed:.1f}s")
+        print(f"[{request_id_status or request_id}] Resultado final: {len(resultado)} caracteres, ~{len(resultado.split())} palavras")
+        
+        if request_id_status:
+            num_topicos = resultado.count("##")
+            set_status(request_id_status, "generating", 92, f"Tópicos formatados: {num_topicos} tópicos identificados")
         
         output_path.write_text(resultado, encoding="utf-8")
         return resultado, output_path

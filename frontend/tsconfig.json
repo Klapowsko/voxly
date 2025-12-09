@@ -17,17 +17,16 @@
     "isolatedModules": true,
     "jsx": "preserve",
     "incremental": true,
-    "types": [
-      "node"
-    ],
     "plugins": [
       {
         "name": "next"
       }
-    ]
+    ],
+    "forceConsistentCasingInFileNames": true
   },
   "include": [
     "next-env.d.ts",
+    "types/**/*.ts",
     "**/*.ts",
     "**/*.tsx",
     ".next/types/**/*.ts"

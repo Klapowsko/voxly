@@ -99,10 +99,12 @@ def limpar_repeticoes(texto: str) -> str:
     return texto_limpo
 
 
-async def transcribe_file(path: Path, settings: Settings) -> str:
-    """Transcreve áudio usando Whisper open source local."""
+async def transcribe_file(path: Path, settings: Settings, request_id: str | None = None) -> str:
+    """Transcreve áudio usando Whisper open source local. Suporta áudios longos (1h+)."""
 
     def _run() -> str:
+        import time
+        
         # Detecta device (auto, cuda ou cpu)
         if settings.whisper_device == "auto":
             device = "cuda" if torch.cuda.is_available() else "cpu"
@@ -110,27 +112,70 @@ async def transcribe_file(path: Path, settings: Settings) -> str:
             device = settings.whisper_device
         
         if device == "cpu":
-            print("Aviso: GPU não disponível, usando CPU (será mais lento)")
+            print("Aviso: GPU não disponível, usando CPU (será mais lento para áudios longos)")
+        
+        print(f"[{request_id or 'N/A'}] Iniciando transcrição com modelo {settings.whisper_model} em {device}...")
+        start_time = time.time()
+        
+        # Atualiza status se request_id fornecido
+        if request_id:
+            from app.utils.status import set_status
+            set_status(request_id, "transcribing", 30, "Carregando modelo Whisper...")
         
         # Carrega o modelo Whisper
         model = whisper.load_model(settings.whisper_model, device=device)
+        print(f"[{request_id or 'N/A'}] Modelo carregado. Iniciando transcrição...")
         
-        # Ajustes para acelerar inferência
+        if request_id:
+            set_status(request_id, "transcribing", 40, "Processando áudio com Whisper...")
+        
+        # Ajustes otimizados para melhor qualidade de transcrição
         options = dict(
             fp16=True if device == "cuda" else False,  # fp16 só funciona em GPU
-            temperature=0.0,
-            condition_on_previous_text=False,
-            no_speech_threshold=0.2,
-            logprob_threshold=-1.0,
+            temperature=0.0,  # Mais determinístico para melhor qualidade
+            condition_on_previous_text=True,  # Usa contexto anterior - melhora qualidade
+            no_speech_threshold=0.6,  # Mais conservador - evita cortar fala válida
+            logprob_threshold=-1.0,  # Aceita variações normais de fala
+            compression_ratio_threshold=2.4,  # Detecta repetições (ajuda na limpeza)
+            # Para áudios muito longos, o Whisper processa automaticamente em chunks
+            # Não precisa configurar chunk_length manualmente
+            # O Whisper gerencia automaticamente a memória para áudios longos
         )
         
-        # Transcreve o arquivo
+        # Transcreve o arquivo (Whisper processa automaticamente áudios longos)
+        # Para áudios > 30s, o Whisper divide automaticamente em segmentos
         result = model.transcribe(str(path), **options)
+        
+        elapsed = time.time() - start_time
+        duracao_audio = result.get("duration", 0)
+        
+        print(f"[{request_id or 'N/A'}] Transcrição concluída em {elapsed:.1f}s")
+        if duracao_audio:
+            print(f"[{request_id or 'N/A'}] Duração do áudio: {duracao_audio:.1f}s ({duracao_audio/60:.1f} minutos)")
+            print(f"[{request_id or 'N/A'}] Velocidade: {duracao_audio/elapsed:.2f}x tempo real")
         
         texto = result.get("text", "").strip()
         
+        if not texto:
+            print(f"[{request_id or 'N/A'}] Aviso: Transcrição vazia!")
+            if request_id:
+                set_status(request_id, "transcribing", 50, "Aviso: Transcrição vazia")
+            return ""
+        
+        print(f"[{request_id or 'N/A'}] Texto transcrito: {len(texto)} caracteres, ~{len(texto.split())} palavras")
+        
+        if request_id:
+            set_status(request_id, "transcribing", 55, f"Limpando repetições ({len(texto)} caracteres)...")
+        
         # Limpa repetições excessivas
+        print(f"[{request_id or 'N/A'}] Limpando repetições...")
         texto_limpo = limpar_repeticoes(texto)
+        
+        if len(texto_limpo) != len(texto):
+            removidos = len(texto) - len(texto_limpo)
+            print(f"[{request_id or 'N/A'}] Texto limpo: {len(texto_limpo)} caracteres (removidos {removidos} caracteres de repetições)")
+            if request_id:
+                set_status(request_id, "transcribing", 58, f"Removidas {removidos} repetições")
         
         return texto_limpo
 

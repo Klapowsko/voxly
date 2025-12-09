@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, ChangeEvent } from "react";
 
 type Status = "idle" | "recording" | "uploading" | "transcribing" | "generating" | "done" | "error";
 
@@ -12,17 +12,28 @@ interface Result {
   download_url: string;
 }
 
+interface ProgressStatus {
+  stage: string;
+  progress: number;
+  message: string;
+  updated_at: string;
+}
+
 export default function Home() {
   const [status, setStatus] = useState<Status>("idle");
   const [recordingTime, setRecordingTime] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [progress, setProgress] = useState<ProgressStatus | null>(null);
+  const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
-  const timerIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const timerIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const statusPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
-  const apiToken = process.env.NEXT_PUBLIC_API_TOKEN || "dev-token";
+  // Next.js disponibiliza process.env automaticamente no cliente
+  const apiUrl = (process.env.NEXT_PUBLIC_API_URL as string) || "http://localhost:8000";
+  const apiToken = (process.env.NEXT_PUBLIC_API_TOKEN as string) || "dev-token";
   
   // Debug: verificar se as variáveis estão sendo lidas
   useEffect(() => {
@@ -35,8 +46,68 @@ export default function Home() {
       if (timerIntervalRef.current) {
         clearInterval(timerIntervalRef.current);
       }
+      if (statusPollIntervalRef.current) {
+        clearInterval(statusPollIntervalRef.current);
+      }
     };
   }, []);
+
+  // Polling de status quando há uma requisição em andamento
+  useEffect(() => {
+    if (currentRequestId && (status === "uploading" || status === "transcribing" || status === "generating")) {
+      const pollStatus = async () => {
+        try {
+          const response = await fetch(`${apiUrl}/api/status/${currentRequestId}`, {
+            headers: {
+              "X-API-TOKEN": apiToken,
+            },
+          });
+          if (response.ok) {
+            const statusData: ProgressStatus = await response.json();
+            setProgress(statusData);
+            
+            // Atualiza status baseado no stage
+            if (statusData.stage === "done") {
+              setStatus("done");
+              if (statusPollIntervalRef.current) {
+                clearInterval(statusPollIntervalRef.current);
+                statusPollIntervalRef.current = null;
+              }
+            } else if (statusData.stage === "error") {
+              setStatus("error");
+              setError(statusData.message);
+              if (statusPollIntervalRef.current) {
+                clearInterval(statusPollIntervalRef.current);
+                statusPollIntervalRef.current = null;
+              }
+            } else {
+              // Atualiza status baseado no stage
+              if (statusData.stage === "uploading") {
+                setStatus("uploading");
+              } else if (statusData.stage === "transcribing") {
+                setStatus("transcribing");
+              } else if (statusData.stage === "generating") {
+                setStatus("generating");
+              }
+            }
+          }
+        } catch (err) {
+          console.error("Erro ao buscar status:", err);
+        }
+      };
+
+      // Poll a cada 1 segundo
+      statusPollIntervalRef.current = setInterval(pollStatus, 1000);
+      pollStatus(); // Primeira chamada imediata
+
+      return () => {
+        if (statusPollIntervalRef.current) {
+          clearInterval(statusPollIntervalRef.current);
+          statusPollIntervalRef.current = null;
+        }
+      };
+    }
+  }, [currentRequestId, status, apiUrl, apiToken]);
 
   const startRecording = async () => {
     try {
@@ -70,7 +141,7 @@ export default function Home() {
       setError(null);
 
       timerIntervalRef.current = setInterval(() => {
-        setRecordingTime((prev) => prev + 1);
+        setRecordingTime((prev: number) => prev + 1);
       }, 1000);
     } catch (err) {
       setError("Erro ao acessar o microfone. Verifique as permissões.");
@@ -96,6 +167,8 @@ export default function Home() {
     setStatus("uploading");
     setError(null);
     setResult(null);
+    setProgress({ stage: "uploading", progress: 0, message: "Iniciando upload...", updated_at: new Date().toISOString() });
+    setCurrentRequestId(null);
 
     const formData = new FormData();
     formData.append("file", file);
@@ -120,15 +193,26 @@ export default function Home() {
         throw new Error(errorData.detail || `Erro ${response.status}`);
       }
 
-      setStatus("transcribing");
       const data: Result = await response.json();
-      setStatus("generating");
-      await new Promise((resolve) => setTimeout(resolve, 500));
+      setCurrentRequestId(data.request_id);
       setResult(data);
       setStatus("done");
+      setProgress({ stage: "done", progress: 100, message: "Processamento concluído!", updated_at: new Date().toISOString() });
+      
+      // Limpa polling após conclusão
+      if (statusPollIntervalRef.current) {
+        clearInterval(statusPollIntervalRef.current);
+        statusPollIntervalRef.current = null;
+      }
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao processar áudio");
       setStatus("error");
+      setProgress(null);
+      setCurrentRequestId(null);
+      if (statusPollIntervalRef.current) {
+        clearInterval(statusPollIntervalRef.current);
+        statusPollIntervalRef.current = null;
+      }
     }
   };
 
@@ -163,7 +247,7 @@ export default function Home() {
       mediaRecorder.onstop = () => {
         // Para todas as tracks do stream
         if (mediaRecorder.stream) {
-          mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+          mediaRecorder.stream.getTracks().forEach((track: MediaStreamTrack) => track.stop());
         }
 
         // Verifica se há chunks coletados
@@ -203,7 +287,7 @@ export default function Home() {
     });
   };
 
-  const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileSelect = (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
       handleFileUpload(file);
@@ -215,7 +299,13 @@ export default function Home() {
     setRecordingTime(0);
     setResult(null);
     setError(null);
+    setProgress(null);
+    setCurrentRequestId(null);
     audioChunksRef.current = [];
+    if (statusPollIntervalRef.current) {
+      clearInterval(statusPollIntervalRef.current);
+      statusPollIntervalRef.current = null;
+    }
   };
 
   const handleDownload = async (downloadUrl: string, filename: string) => {
@@ -287,13 +377,38 @@ export default function Home() {
               )}
 
               {(status === "uploading" || status === "transcribing" || status === "generating") && (
-                <div className="flex items-center gap-3">
-                  <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
-                  <span className="text-lg text-gray-700">
-                    {status === "uploading" && "Enviando áudio..."}
-                    {status === "transcribing" && "Transcrevendo com Whisper..."}
-                    {status === "generating" && "Gerando tópicos em Markdown..."}
-                  </span>
+                <div className="w-full max-w-md mx-auto">
+                  <div className="flex items-center gap-3 mb-2">
+                    <div className="animate-spin rounded-full h-6 w-6 border-b-2 border-indigo-600"></div>
+                    <span className="text-lg text-gray-700 flex-1">
+                      {progress?.message || 
+                        (status === "uploading" && "Enviando áudio...") ||
+                        (status === "transcribing" && "Transcrevendo com Whisper...") ||
+                        (status === "generating" && "Gerando tópicos em Markdown...")}
+                    </span>
+                  </div>
+                  
+                  {/* Barra de progresso */}
+                  <div className="w-full bg-gray-200 rounded-full h-3 mb-2">
+                    <div
+                      className="bg-indigo-600 h-3 rounded-full transition-all duration-300 ease-out"
+                      style={{
+                        width: `${progress?.progress || 0}%`,
+                      }}
+                    ></div>
+                  </div>
+                  
+                  {/* Porcentagem */}
+                  <div className="text-center">
+                    <span className="text-sm font-semibold text-indigo-600">
+                      {progress?.progress || 0}%
+                    </span>
+                    {progress?.stage && (
+                      <span className="text-xs text-gray-500 ml-2">
+                        ({progress.stage})
+                      </span>
+                    )}
+                  </div>
                 </div>
               )}
 
