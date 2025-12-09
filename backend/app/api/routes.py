@@ -19,8 +19,29 @@ async def transcribe_audio(
     file: UploadFile = File(...),
     settings: Settings = Depends(get_app_settings),
 ) -> dict[str, Any]:
-    if not file.content_type or not file.content_type.startswith("audio/"):
-        raise HTTPException(status_code=400, detail="Arquivo enviado não é áudio.")
+    # Aceita tanto áudio quanto vídeo (Whisper pode processar ambos)
+    # Verifica content_type e extensão do arquivo
+    content_type = file.content_type or ""
+    filename = file.filename or ""
+    
+    # Extensões de áudio e vídeo suportadas
+    audio_extensions = {".mp3", ".wav", ".m4a", ".ogg", ".flac", ".aac", ".webm", ".opus"}
+    video_extensions = {".mp4", ".webm", ".avi", ".mov", ".mkv", ".flv", ".wmv"}
+    
+    # Verifica se é áudio ou vídeo pelo content_type
+    is_audio = content_type.startswith("audio/")
+    is_video = content_type.startswith("video/")
+    
+    # Verifica pela extensão do arquivo
+    file_ext = Path(filename).suffix.lower()
+    is_audio_ext = file_ext in audio_extensions
+    is_video_ext = file_ext in video_extensions
+    
+    if not (is_audio or is_video or is_audio_ext or is_video_ext):
+        raise HTTPException(
+            status_code=400,
+            detail=f"Arquivo não suportado. Envie um arquivo de áudio ou vídeo. Tipo recebido: {content_type or 'desconhecido'}, extensão: {file_ext or 'nenhuma'}",
+        )
 
     request_id = new_request_id()
     audio_path = await save_upload(file, settings=settings, request_id=request_id)
