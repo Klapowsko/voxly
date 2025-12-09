@@ -1,0 +1,44 @@
+services:
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    ports:
+      - "8000:8000"
+    volumes:
+      - ./data:/data:z
+      - ./backend:/app:z
+    environment:
+      - APP_API_TOKEN=${APP_API_TOKEN:-dev-token}
+      - APP_WHISPER_MODEL=${APP_WHISPER_MODEL:-base}
+      - APP_WHISPER_DEVICE=${APP_WHISPER_DEVICE:-auto}
+      - APP_OLLAMA_MODEL=${APP_OLLAMA_MODEL:-llama3.2}
+      - APP_OLLAMA_URL=${APP_OLLAMA_URL:-http://localhost:11434}
+      - APP_DATA_DIR=/data
+    env_file:
+      - .env
+    restart: unless-stopped
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app:z
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
+    environment:
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_API_TOKEN=${NEXT_PUBLIC_API_TOKEN:-dev-token}
+    env_file:
+      - .env
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+volumes:
+  frontend_node_modules:
+  frontend_next:
+
