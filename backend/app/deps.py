@@ -9,14 +9,19 @@ def get_app_settings() -> Settings:
 
 def verify_token(
     settings: Settings = Depends(get_app_settings),
-    x_api_token: str | None = Header(None, convert_underscores=False),
+    x_api_token: str | None = Header(None, alias="X-API-TOKEN"),
 ) -> None:
     expected = settings.api_token
     if not expected:
         return
+    if not x_api_token:
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Missing X-API-TOKEN header",
+        )
     if x_api_token != expected:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Invalid or missing X-API-TOKEN",
+            detail="Invalid X-API-TOKEN",
         )
 

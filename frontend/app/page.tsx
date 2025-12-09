@@ -23,6 +23,12 @@ export default function Home() {
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000";
   const apiToken = process.env.NEXT_PUBLIC_API_TOKEN || "dev-token";
+  
+  // Debug: verificar se as variáveis estão sendo lidas
+  useEffect(() => {
+    console.log("API URL:", apiUrl);
+    console.log("API Token:", apiToken ? "***" + apiToken.slice(-4) : "não definido");
+  }, [apiUrl, apiToken]);
 
   useEffect(() => {
     return () => {
@@ -35,12 +41,14 @@ export default function Home() {
   const startRecording = async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      const mediaRecorder = new MediaRecorder(stream);
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4",
+      });
       mediaRecorderRef.current = mediaRecorder;
       audioChunksRef.current = [];
 
       mediaRecorder.ondataavailable = (event) => {
-        if (event.data.size > 0) {
+        if (event.data && event.data.size > 0) {
           audioChunksRef.current.push(event.data);
         }
       };
@@ -49,7 +57,14 @@ export default function Home() {
         stream.getTracks().forEach((track) => track.stop());
       };
 
-      mediaRecorder.start();
+      mediaRecorder.onerror = (event) => {
+        console.error("Erro no MediaRecorder:", event);
+        setError("Erro ao gravar áudio.");
+        setStatus("error");
+      };
+
+      // Inicia com timeslice para garantir que os chunks sejam emitidos
+      mediaRecorder.start(1000); // Emite chunks a cada 1 segundo
       setStatus("recording");
       setRecordingTime(0);
       setError(null);
@@ -64,13 +79,11 @@ export default function Home() {
   };
 
   const stopRecording = () => {
-    if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
-      mediaRecorderRef.current.stop();
-    }
     if (timerIntervalRef.current) {
       clearInterval(timerIntervalRef.current);
       timerIntervalRef.current = null;
     }
+    // Não para o MediaRecorder aqui, deixa o handleFinishRecording fazer isso
   };
 
   const formatTime = (seconds: number): string => {
@@ -88,11 +101,17 @@ export default function Home() {
     formData.append("file", file);
 
     try {
+      // Headers devem ser enviados mesmo com FormData
+      const headers: HeadersInit = {
+        "X-API-TOKEN": apiToken,
+      };
+
+      console.log("Enviando requisição para:", `${apiUrl}/api/transcribe`);
+      console.log("Token sendo enviado:", apiToken ? "***" + apiToken.slice(-4) : "não definido");
+
       const response = await fetch(`${apiUrl}/api/transcribe`, {
         method: "POST",
-        headers: {
-          "X-API-TOKEN": apiToken,
-        },
+        headers: headers,
         body: formData,
       });
 
@@ -114,17 +133,74 @@ export default function Home() {
   };
 
   const handleFinishRecording = async () => {
-    stopRecording();
-
-    if (audioChunksRef.current.length === 0) {
-      setError("Nenhum áudio gravado.");
+    if (!mediaRecorderRef.current || mediaRecorderRef.current.state === "inactive") {
+      setError("Nenhuma gravação em andamento.");
       setStatus("error");
       return;
     }
 
-    const audioBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-    const audioFile = new File([audioBlob], "recording.webm", { type: "audio/webm" });
-    await handleFileUpload(audioFile);
+    // Para o timer primeiro
+    if (timerIntervalRef.current) {
+      clearInterval(timerIntervalRef.current);
+      timerIntervalRef.current = null;
+    }
+
+    // Aguarda o MediaRecorder parar e emitir os chunks finais
+    return new Promise<void>((resolve) => {
+      const mediaRecorder = mediaRecorderRef.current;
+      if (!mediaRecorder) {
+        setError("Erro ao finalizar gravação.");
+        setStatus("error");
+        resolve();
+        return;
+      }
+
+      // Força a emissão do último chunk
+      if (mediaRecorder.state === "recording") {
+        mediaRecorder.requestData();
+      }
+
+      mediaRecorder.onstop = () => {
+        // Para todas as tracks do stream
+        if (mediaRecorder.stream) {
+          mediaRecorder.stream.getTracks().forEach((track) => track.stop());
+        }
+
+        // Verifica se há chunks coletados
+        if (audioChunksRef.current.length === 0) {
+          setError("Nenhum áudio gravado. Tente gravar novamente.");
+          setStatus("error");
+          resolve();
+          return;
+        }
+
+        // Cria o blob e faz upload
+        const mimeType = mediaRecorder.mimeType || "audio/webm";
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        const extension = mimeType.includes("webm") ? "webm" : "mp4";
+        const audioFile = new File([audioBlob], `recording.${extension}`, { type: mimeType });
+        
+        handleFileUpload(audioFile).finally(() => resolve());
+      };
+
+      // Para a gravação
+      if (mediaRecorder.state !== "inactive") {
+        mediaRecorder.stop();
+      } else {
+        // Se já estava parado, processa os chunks existentes
+        if (audioChunksRef.current.length > 0) {
+          const mimeType = mediaRecorder.mimeType || "audio/webm";
+          const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+          const extension = mimeType.includes("webm") ? "webm" : "mp4";
+          const audioFile = new File([audioBlob], `recording.${extension}`, { type: mimeType });
+          handleFileUpload(audioFile).finally(() => resolve());
+        } else {
+          setError("Nenhum áudio gravado.");
+          setStatus("error");
+          resolve();
+        }
+      }
+    });
   };
 
   const handleFileSelect = (event: React.ChangeEvent<HTMLInputElement>) => {
