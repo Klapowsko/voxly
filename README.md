@@ -25,11 +25,14 @@ A arquitetura modular permite fácil extração em microserviços no futuro.
 
 1. **Clone o repositório e configure as variáveis de ambiente:**
 
+Os arquivos `.env` serão criados automaticamente pelo Makefile. Se preferir criar manualmente:
+
 ```bash
-cp .env.example .env
+cp backend/env.example backend/.env
+cp frontend/env.example frontend/.env
 ```
 
-Edite o arquivo `.env` se necessário. Por padrão, usa modelos open source:
+Edite os arquivos `.env` se necessário. Por padrão, usa modelos open source:
 - Whisper local (openai-whisper) para transcrição
 - Ollama (opcional) ou Hugging Face para geração de tópicos
 
@@ -86,7 +89,7 @@ Após o processamento, você verá:
 
 ### Variáveis de Ambiente
 
-#### Backend (`.env`)
+#### Backend (`backend/.env`)
 
 - `APP_API_TOKEN`: Token de autenticação para a API (padrão: `dev-token`)
 - `APP_WHISPER_MODEL`: Modelo Whisper local a usar - `tiny`, `base`, `small`, `medium`, `large` (padrão: `base`)
@@ -97,7 +100,7 @@ Após o processamento, você verá:
 
 **Nota**: Se Ollama não estiver disponível, o sistema usa Hugging Face como fallback, e por último um método simples sem IA.
 
-#### Frontend (`.env`)
+#### Frontend (`frontend/.env`)
 
 - `NEXT_PUBLIC_API_URL`: URL da API backend (padrão: `http://localhost:8000`)
 - `NEXT_PUBLIC_API_TOKEN`: Token de autenticação (deve corresponder ao backend)

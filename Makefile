@@ -1,9 +1,24 @@
 .PHONY: build up down logs test clean help
 
-build:
+backend/.env:
+	@if [ ! -f backend/.env ]; then \
+		echo "Criando backend/.env a partir do exemplo..."; \
+		cp backend/env.example backend/.env; \
+		echo "Arquivo backend/.env criado com sucesso!"; \
+	fi
+
+frontend/.env:
+	@if [ ! -f frontend/.env ]; then \
+		echo "Criando frontend/.env..."; \
+		echo "NEXT_PUBLIC_API_URL=http://localhost:8000" > frontend/.env; \
+		echo "NEXT_PUBLIC_API_TOKEN=dev-token" >> frontend/.env; \
+		echo "Arquivo frontend/.env criado com sucesso!"; \
+	fi
+
+build: backend/.env frontend/.env
 	docker compose build
 
-up:
+up: backend/.env frontend/.env
 	docker compose up -d
 
 down:
