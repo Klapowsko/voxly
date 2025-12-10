@@ -79,19 +79,35 @@ export default function Home() {
     // Aguarda um pouco para garantir que está no cliente
     const checkSupport = () => {
       try {
-        if (typeof navigator !== "undefined" && navigator.mediaDevices) {
-          const hasGetDisplayMedia = typeof navigator.mediaDevices.getDisplayMedia === "function";
-          setSystemAudioSupported(hasGetDisplayMedia);
-          
-          console.log("Suporte de captura de áudio do sistema:", {
-            hasGetDisplayMedia,
-            userAgent: navigator.userAgent,
-            supported: hasGetDisplayMedia,
-          });
-        } else {
+        if (typeof navigator === "undefined") {
+          console.log("navigator não disponível (SSR?)");
           setSystemAudioSupported(false);
-          console.log("navigator.mediaDevices não disponível");
+          return;
         }
+
+        if (!navigator.mediaDevices) {
+          const isSecure = window.location.protocol === "https:" || window.location.hostname === "localhost" || window.location.hostname === "127.0.0.1";
+          console.log("navigator.mediaDevices não disponível", {
+            protocol: window.location.protocol,
+            hostname: window.location.hostname,
+            isSecure,
+            userAgent: navigator.userAgent,
+            reason: !isSecure ? "A API requer HTTPS ou localhost" : "Navegador não suporta mediaDevices"
+          });
+          setSystemAudioSupported(false);
+          return;
+        }
+
+        const hasGetDisplayMedia = typeof navigator.mediaDevices.getDisplayMedia === "function";
+        setSystemAudioSupported(hasGetDisplayMedia);
+        
+        console.log("Suporte de captura de áudio do sistema:", {
+          hasGetDisplayMedia,
+          userAgent: navigator.userAgent,
+          protocol: window.location.protocol,
+          hostname: window.location.hostname,
+          supported: hasGetDisplayMedia,
+        });
       } catch (error) {
         console.error("Erro ao verificar suporte:", error);
         setSystemAudioSupported(false);
@@ -253,8 +269,26 @@ export default function Home() {
         setStatus("error");
         return;
       }
+
+      // Verifica se está em contexto seguro (HTTPS ou localhost)
+      const isSecure = window.location.protocol === "https:" || 
+                       window.location.hostname === "localhost" || 
+                       window.location.hostname === "127.0.0.1";
+      
+      if (!isSecure) {
+        setError("A captura de áudio do sistema requer HTTPS. Acesse a página via HTTPS ou use localhost.");
+        setStatus("error");
+        return;
+      }
+
       // Verifica suporte antes de tentar
-      if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== "function") {
+      if (!navigator.mediaDevices) {
+        setError("Seu navegador não suporta a API de mídia. Use um navegador moderno como Chrome ou Edge.");
+        setStatus("error");
+        return;
+      }
+
+      if (typeof navigator.mediaDevices.getDisplayMedia !== "function") {
         setError("Seu navegador não suporta captura de áudio do sistema. Use Chrome ou Edge.");
         setStatus("error");
         return;
