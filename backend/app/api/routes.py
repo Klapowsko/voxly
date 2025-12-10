@@ -54,18 +54,21 @@ async def transcribe_audio(
         # Transcrição (10-60%)
         set_status(request_id, "transcribing", 20, "Iniciando transcrição com Whisper...")
         transcript_text = await transcribe_file(audio_path, settings=settings, request_id=request_id)
-        set_status(request_id, "transcribing", 60, f"Transcrição concluída: {len(transcript_text)} caracteres")
+        set_status(request_id, "transcribing", 60, f"Transcrição concluída com {len(transcript_text)} caracteres")
         
         # Geração de tópicos (60-95%)
         set_status(request_id, "generating", 65, "Iniciando geração de tópicos...")
         markdown_content, markdown_path = await generate_topics_markdown(
-            transcript_text, settings=settings, request_id=request_id, request_id_status=request_id
+            transcript_text,
+            settings=settings,
+            request_id=request_id,
+            request_id_status=request_id,
         )
         set_status(request_id, "generating", 95, "Tópicos gerados com sucesso!")
         
         # Concluído (100%)
         set_status(request_id, "done", 100, "Processamento concluído")
-        
+
         return {
             "request_id": request_id,
             "transcript": transcript_text,
