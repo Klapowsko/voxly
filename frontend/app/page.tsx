@@ -659,7 +659,16 @@ export default function Home() {
               </Stack>
 
               {error && (
-                <Alert severity="error" sx={{ mt: 2 }}>
+                <Alert 
+                  severity="error" 
+                  sx={{ 
+                    mt: 2,
+                    background: "rgba(244, 67, 54, 0.2)",
+                    backdropFilter: "blur(15px) saturate(180%)",
+                    WebkitBackdropFilter: "blur(15px) saturate(180%)",
+                    border: "1px solid rgba(244, 67, 54, 0.4)",
+                  }}
+                >
                   {error}
                 </Alert>
               )}
@@ -701,7 +710,17 @@ export default function Home() {
                     <Typography variant="subtitle1" fontWeight={700} gutterBottom>
                       Transcrição {result.language_detected ? `(idioma detectado: ${result.language_detected}${result.translated ? " → traduzido para pt-BR" : ""})` : ""}
                     </Typography>
-                    <Paper variant="outlined" sx={{ p: 2, maxHeight: 240, overflow: "auto" }}>
+                    <Paper 
+                      variant="outlined" 
+                      sx={{ 
+                        p: 2, 
+                        maxHeight: 240, 
+                        overflow: "auto", 
+                        background: "rgba(255, 255, 255, 0.08)",
+                        backdropFilter: "blur(25px) saturate(200%)",
+                        WebkitBackdropFilter: "blur(25px) saturate(200%)",
+                      }}
+                    >
                       <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
                         {result.transcript_pt}
                       </Typography>
@@ -713,7 +732,17 @@ export default function Home() {
                       <Typography variant="subtitle1" fontWeight={700} gutterBottom>
                         Transcrição original
                       </Typography>
-                      <Paper variant="outlined" sx={{ p: 2, maxHeight: 240, overflow: "auto" }}>
+                      <Paper 
+                        variant="outlined" 
+                        sx={{ 
+                          p: 2, 
+                          maxHeight: 240, 
+                          overflow: "auto", 
+                          background: "rgba(255, 255, 255, 0.08)",
+                          backdropFilter: "blur(25px) saturate(200%)",
+                          WebkitBackdropFilter: "blur(25px) saturate(200%)",
+                        }}
+                      >
                         <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
                           {result.transcript_original}
                         </Typography>
@@ -725,7 +754,17 @@ export default function Home() {
                     <Typography variant="subtitle1" fontWeight={700} gutterBottom>
                       Tópicos (Markdown)
                     </Typography>
-                    <Paper variant="outlined" sx={{ p: 2, maxHeight: 360, overflow: "auto" }}>
+                    <Paper 
+                      variant="outlined" 
+                      sx={{ 
+                        p: 2, 
+                        maxHeight: 360, 
+                        overflow: "auto", 
+                        background: "rgba(255, 255, 255, 0.08)",
+                        backdropFilter: "blur(25px) saturate(200%)",
+                        WebkitBackdropFilter: "blur(25px) saturate(200%)",
+                      }}
+                    >
                       <Typography component="pre" variant="body2" sx={{ whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
                         {result.markdown}
                       </Typography>

@@ -190,18 +190,36 @@ export default function HistoryPage() {
           </Button>
         </Stack>
 
-        {error && (
-          <Alert severity="error" sx={{ mb: 2 }}>
-            {error}
-          </Alert>
-        )}
+          {error && (
+            <Alert 
+              severity="error" 
+              sx={{ 
+                mb: 2,
+                background: "rgba(244, 67, 54, 0.2)",
+                backdropFilter: "blur(15px) saturate(180%)",
+                WebkitBackdropFilter: "blur(15px) saturate(180%)",
+                border: "1px solid rgba(244, 67, 54, 0.4)",
+              }}
+            >
+              {error}
+            </Alert>
+          )}
 
         {loading ? (
           <Stack alignItems="center" py={6}>
             <CircularProgress />
           </Stack>
         ) : items.length === 0 ? (
-          <Paper variant="outlined" sx={{ p: 4, textAlign: "center" }}>
+          <Paper 
+            variant="outlined" 
+            sx={{ 
+              p: 4, 
+              textAlign: "center", 
+              background: "rgba(255, 255, 255, 0.08)",
+              backdropFilter: "blur(30px) saturate(200%)",
+              WebkitBackdropFilter: "blur(30px) saturate(200%)",
+            }}
+          >
             <Typography>Nenhuma transcrição ainda.</Typography>
           </Paper>
         ) : (
@@ -296,7 +314,17 @@ export default function HistoryPage() {
                 <Typography variant="subtitle2" fontWeight={700} gutterBottom>
                   Transcrição
                 </Typography>
-                <Paper variant="outlined" sx={{ p: 2, maxHeight: 260, overflow: "auto" }}>
+                <Paper 
+                  variant="outlined" 
+                  sx={{ 
+                    p: 2, 
+                    maxHeight: 260, 
+                    overflow: "auto", 
+                    background: "rgba(255, 255, 255, 0.08)",
+                    backdropFilter: "blur(25px) saturate(200%)",
+                    WebkitBackdropFilter: "blur(25px) saturate(200%)",
+                  }}
+                >
                   <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
                     {selected.transcript}
                   </Typography>
@@ -307,7 +335,17 @@ export default function HistoryPage() {
                 <Typography variant="subtitle2" fontWeight={700} gutterBottom>
                   Tópicos (Markdown)
                 </Typography>
-                <Paper variant="outlined" sx={{ p: 2, maxHeight: 260, overflow: "auto" }}>
+                <Paper 
+                  variant="outlined" 
+                  sx={{ 
+                    p: 2, 
+                    maxHeight: 260, 
+                    overflow: "auto", 
+                    background: "rgba(255, 255, 255, 0.08)",
+                    backdropFilter: "blur(25px) saturate(200%)",
+                    WebkitBackdropFilter: "blur(25px) saturate(200%)",
+                  }}
+                >
                   <Typography component="pre" variant="body2" sx={{ whiteSpace: "pre-wrap", fontFamily: "monospace" }}>
                     {selected.markdown}
                   </Typography>
@@ -319,7 +357,17 @@ export default function HistoryPage() {
                   <Typography variant="subtitle2" fontWeight={700} gutterBottom>
                     Transcrição original
                   </Typography>
-                  <Paper variant="outlined" sx={{ p: 2, maxHeight: 260, overflow: "auto" }}>
+                  <Paper 
+                    variant="outlined" 
+                    sx={{ 
+                      p: 2, 
+                      maxHeight: 260, 
+                      overflow: "auto", 
+                      background: "rgba(255, 255, 255, 0.08)",
+                      backdropFilter: "blur(25px) saturate(200%)",
+                      WebkitBackdropFilter: "blur(25px) saturate(200%)",
+                    }}
+                  >
                     <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
                       {selected.transcript_original}
                     </Typography>
