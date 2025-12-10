@@ -25,8 +25,9 @@ import SendIcon from "@mui/icons-material/Send";
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import ScreenShareIcon from "@mui/icons-material/ScreenShare";
 
-type Status = "idle" | "recording" | "ready" | "uploading" | "transcribing" | "generating" | "done" | "error";
+type Status = "idle" | "recording" | "capturing_system" | "ready" | "uploading" | "transcribing" | "generating" | "done" | "error";
 
 interface Result {
   request_id: string;
@@ -56,7 +57,8 @@ export default function Home() {
   const [progress, setProgress] = useState<ProgressStatus | null>(null);
   const [currentRequestId, setCurrentRequestId] = useState<string | null>(null);
   const [pendingFile, setPendingFile] = useState<File | null>(null);
-  const [pendingSource, setPendingSource] = useState<"recording" | "upload" | null>(null);
+  const [pendingSource, setPendingSource] = useState<"recording" | "upload" | "system_audio" | null>(null);
+  const [systemAudioSupported, setSystemAudioSupported] = useState<boolean>(false);
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
@@ -66,6 +68,36 @@ export default function Home() {
 
   const apiUrl = (process.env.NEXT_PUBLIC_API_URL as string) || "http://localhost:8000";
   const apiToken = (process.env.NEXT_PUBLIC_API_TOKEN as string) || "dev-token";
+
+  // Verifica suporte para captura de áudio do sistema
+  useEffect(() => {
+    if (typeof window !== "undefined" && navigator.mediaDevices) {
+      const hasGetDisplayMedia = typeof navigator.mediaDevices.getDisplayMedia === "function";
+      // Verifica se é Chrome/Edge (suportam audio: true)
+      // Chrome: userAgent contém "Chrome" mas não "Edg" (Edge) ou "OPR" (Opera)
+      // Nota: Chrome sempre inclui "Safari" no userAgent (WebKit), então não devemos rejeitar por isso
+      // Edge: userAgent contém "Edg"
+      const userAgent = navigator.userAgent;
+      const isChrome = /Chrome/.test(userAgent) && !/Edg|OPR/.test(userAgent);
+      const isEdge = /Edg/.test(userAgent);
+      const isChromeOrEdge = isChrome || isEdge;
+      
+      const supported = hasGetDisplayMedia && isChromeOrEdge;
+      setSystemAudioSupported(supported);
+      
+      // Debug: log para verificar detecção
+      console.log("Suporte de captura de áudio do sistema:", {
+        hasGetDisplayMedia,
+        isChrome,
+        isEdge,
+        userAgent,
+        supported,
+      });
+    } else {
+      setSystemAudioSupported(false);
+      console.log("Suporte de captura: window ou mediaDevices não disponível");
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -198,6 +230,144 @@ export default function Home() {
       }, 1000);
     } catch (err) {
       setError("Erro ao acessar o microfone. Verifique as permissões.");
+      setStatus("error");
+    }
+  };
+
+  const startSystemAudioCapture = async () => {
+    try {
+      // Verifica suporte antes de tentar
+      if (!navigator.mediaDevices || typeof navigator.mediaDevices.getDisplayMedia !== "function") {
+        setError("Seu navegador não suporta captura de áudio do sistema. Use Chrome ou Edge.");
+        setStatus("error");
+        return;
+      }
+
+      // Tenta primeiro apenas com áudio (se suportado)
+      // Se falhar, tenta com vídeo também (alguns navegadores exigem)
+      let stream: MediaStream;
+      try {
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            sampleRate: 44100,
+          },
+          video: false,
+        });
+      } catch (audioOnlyError) {
+        // Se falhar com apenas áudio, tenta com vídeo também
+        // (alguns navegadores/plataformas exigem vídeo mesmo que não usemos)
+        console.log("Tentativa apenas com áudio falhou, tentando com vídeo também:", audioOnlyError);
+        stream = await navigator.mediaDevices.getDisplayMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            sampleRate: 44100,
+          },
+          video: {
+            displaySurface: "browser", // Preferência por abas do navegador
+          },
+        });
+        
+        // Para as tracks de vídeo imediatamente (não precisamos delas)
+        stream.getVideoTracks().forEach((track) => {
+          track.stop();
+        });
+      }
+
+      // Verifica se há tracks de áudio
+      const audioTracks = stream.getAudioTracks();
+      if (audioTracks.length === 0) {
+        stream.getTracks().forEach((track) => track.stop());
+        setError("Nenhuma fonte de áudio foi selecionada. Tente novamente e selecione uma aba ou janela com áudio.");
+        setStatus("error");
+        return;
+      }
+
+      const mediaRecorder = new MediaRecorder(stream, {
+        mimeType: MediaRecorder.isTypeSupported("audio/webm") ? "audio/webm" : "audio/mp4",
+      });
+      mediaRecorderRef.current = mediaRecorder;
+      audioChunksRef.current = [];
+      shouldPersistRecordingRef.current = false;
+
+      // Para o stream quando o usuário para de compartilhar
+      audioTracks.forEach((track) => {
+        track.onended = () => {
+          if (mediaRecorderRef.current && mediaRecorderRef.current.state !== "inactive") {
+            shouldPersistRecordingRef.current = true;
+            mediaRecorderRef.current.stop();
+          }
+        };
+      });
+
+      mediaRecorder.ondataavailable = (event) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((track) => track.stop());
+        if (!shouldPersistRecordingRef.current) {
+          // cancelamento: apenas limpa
+          audioChunksRef.current = [];
+          return;
+        }
+
+        if (audioChunksRef.current.length === 0) {
+          setError("Nenhum áudio capturado. Tente novamente.");
+          setStatus("error");
+          return;
+        }
+
+        const mimeType = mediaRecorder.mimeType || "audio/webm";
+        const audioBlob = new Blob(audioChunksRef.current, { type: mimeType });
+        const extension = mimeType.includes("webm") ? "webm" : "mp4";
+        const audioFile = new File([audioBlob], `system_audio.${extension}`, { type: mimeType });
+
+        setPendingFile(audioFile);
+        setPendingSource("system_audio");
+        setStatus("ready");
+        setError(null);
+      };
+
+      mediaRecorder.onerror = (event) => {
+        console.error("Erro no MediaRecorder:", event);
+        setError("Erro ao capturar áudio do sistema.");
+        setStatus("error");
+      };
+
+      mediaRecorder.start(500);
+      setStatus("capturing_system");
+      setRecordingTime(0);
+      setError(null);
+      setResult(null);
+
+      timerIntervalRef.current = setInterval(() => {
+        setRecordingTime((prev: number) => prev + 1);
+      }, 1000);
+    } catch (err) {
+      console.error("Erro ao capturar áudio do sistema:", err);
+      if (err instanceof Error) {
+        if (err.name === "NotAllowedError") {
+          setError("Permissão negada. Você precisa permitir o compartilhamento de áudio/vídeo.");
+        } else if (err.name === "NotFoundError") {
+          setError("Nenhuma fonte de áudio encontrada. Certifique-se de que há áudio tocando.");
+        } else if (err.name === "NotSupportedError" || err.message?.includes("Not supported")) {
+          setError("Captura de áudio do sistema não é suportada nesta plataforma/navegador. Tente usar Windows/Mac ou uma versão mais recente do Chrome.");
+        } else if (err.name === "AbortError") {
+          // Usuário cancelou - não é um erro
+          setStatus("idle");
+          setError(null);
+          return;
+        } else {
+          setError(`Erro ao capturar áudio: ${err.message || err.name || "Erro desconhecido"}`);
+        }
+      } else {
+        setError("Erro desconhecido ao capturar áudio do sistema.");
+      }
       setStatus("error");
     }
   };
@@ -356,6 +526,8 @@ export default function Home() {
     switch (status) {
       case "recording":
         return "Gravando";
+      case "capturing_system":
+        return "Capturando áudio do sistema";
       case "ready":
         return "Pronto para enviar";
       case "uploading":
@@ -411,22 +583,32 @@ export default function Home() {
 
               <Stack direction={{ xs: "column", sm: "row" }} spacing={2} alignItems={{ xs: "stretch", sm: "center" }}>
                 {status === "idle" && (
-                  <Stack direction="row" spacing={1}>
+                  <Stack direction="row" spacing={1} flexWrap="wrap">
                     <Button variant="contained" startIcon={<MicIcon />} onClick={startRecording}>
                       Gravar
                     </Button>
+                    {systemAudioSupported === true && (
+                      <Button
+                        variant="contained"
+                        color="secondary"
+                        startIcon={<ScreenShareIcon />}
+                        onClick={startSystemAudioCapture}
+                      >
+                        Capturar Áudio do Sistema
+                      </Button>
+                    )}
                     <Button
                       variant="outlined"
                       startIcon={<UploadFileIcon />}
                       component="label"
                     >
                       Upload
-                      <input type="file" hidden accept="audio/*" onChange={handleFileSelect} />
+                      <input type="file" hidden accept="audio/*,video/*" onChange={handleFileSelect} />
                     </Button>
                   </Stack>
                 )}
 
-                {status === "recording" && (
+                {(status === "recording" || status === "capturing_system") && (
                   <Stack direction="row" spacing={1} alignItems="center">
                     <Chip color="error" label={formatTime(recordingTime)} />
                     <Button color="success" variant="contained" startIcon={<StopIcon />} onClick={stopRecordingAndKeep}>
@@ -457,7 +639,8 @@ export default function Home() {
                       {progress?.message ||
                         (status === "uploading" && "Enviando áudio...") ||
                         (status === "transcribing" && "Transcrevendo com Whisper...") ||
-                        (status === "generating" && "Gerando tópicos em Markdown...")}
+                        (status === "generating" && "Gerando tópicos em Markdown...") ||
+                        ""}
                     </Typography>
                   </Stack>
                 )}
@@ -490,7 +673,12 @@ export default function Home() {
                   Arquivo aguardando envio
                 </Typography>
                 <Typography variant="body2" color="text.secondary">
-                  {pendingFile.name} {pendingSource === "recording" ? "(gravado agora)" : "(upload)"}
+                  {pendingFile.name}{" "}
+                  {pendingSource === "recording"
+                    ? "(gravado agora)"
+                    : pendingSource === "system_audio"
+                    ? "(áudio do sistema)"
+                    : "(upload)"}
                 </Typography>
               </CardContent>
             </Card>
