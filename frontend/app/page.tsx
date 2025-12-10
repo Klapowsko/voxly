@@ -71,39 +71,38 @@ export default function Home() {
 
   // Verifica suporte para captura de áudio do sistema
   useEffect(() => {
-    // Verifica se está no cliente (não no servidor)
-    if (typeof window === "undefined" || typeof navigator === "undefined") {
-      setSystemAudioSupported(false);
+    // Só executa no cliente (navegador do usuário)
+    if (typeof window === "undefined") {
       return;
     }
 
-    // Verifica se mediaDevices está disponível
-    if (!navigator.mediaDevices) {
-      setSystemAudioSupported(false);
-      return;
-    }
+    // Aguarda um pouco para garantir que está no cliente
+    const checkSupport = () => {
+      try {
+        if (typeof navigator !== "undefined" && navigator.mediaDevices) {
+          const hasGetDisplayMedia = typeof navigator.mediaDevices.getDisplayMedia === "function";
+          setSystemAudioSupported(hasGetDisplayMedia);
+          
+          console.log("Suporte de captura de áudio do sistema:", {
+            hasGetDisplayMedia,
+            userAgent: navigator.userAgent,
+            supported: hasGetDisplayMedia,
+          });
+        } else {
+          setSystemAudioSupported(false);
+          console.log("navigator.mediaDevices não disponível");
+        }
+      } catch (error) {
+        console.error("Erro ao verificar suporte:", error);
+        setSystemAudioSupported(false);
+      }
+    };
 
-    const hasGetDisplayMedia = typeof navigator.mediaDevices.getDisplayMedia === "function";
-    // Verifica se é Chrome/Edge (suportam audio: true)
-    // Chrome: userAgent contém "Chrome" mas não "Edg" (Edge) ou "OPR" (Opera)
-    // Nota: Chrome sempre inclui "Safari" no userAgent (WebKit), então não devemos rejeitar por isso
-    // Edge: userAgent contém "Edg"
-    const userAgent = navigator.userAgent;
-    const isChrome = /Chrome/.test(userAgent) && !/Edg|OPR/.test(userAgent);
-    const isEdge = /Edg/.test(userAgent);
-    const isChromeOrEdge = isChrome || isEdge;
+    // Executa imediatamente e também após um pequeno delay para garantir
+    checkSupport();
+    const timeout = setTimeout(checkSupport, 100);
     
-    const supported = hasGetDisplayMedia && isChromeOrEdge;
-    setSystemAudioSupported(supported);
-    
-    // Debug: log para verificar detecção
-    console.log("Suporte de captura de áudio do sistema:", {
-      hasGetDisplayMedia,
-      isChrome,
-      isEdge,
-      userAgent,
-      supported,
-    });
+    return () => clearTimeout(timeout);
   }, []);
 
   useEffect(() => {
@@ -609,16 +608,16 @@ export default function Home() {
                     <Button variant="contained" startIcon={<MicIcon />} onClick={startRecording}>
                       Gravar
                     </Button>
-                    {systemAudioSupported === true && (
-                      <Button
-                        variant="contained"
-                        color="secondary"
-                        startIcon={<ScreenShareIcon />}
-                        onClick={startSystemAudioCapture}
-                      >
-                        Capturar Áudio do Sistema
-                      </Button>
-                    )}
+                    <Button
+                      variant={systemAudioSupported ? "contained" : "outlined"}
+                      color="secondary"
+                      startIcon={<ScreenShareIcon />}
+                      onClick={startSystemAudioCapture}
+                      disabled={!systemAudioSupported}
+                      title={systemAudioSupported ? "" : "Seu navegador não suporta captura de áudio do sistema. Use Chrome ou Edge."}
+                    >
+                      Capturar Áudio do Sistema
+                    </Button>
                     <Button
                       variant="outlined"
                       startIcon={<UploadFileIcon />}
