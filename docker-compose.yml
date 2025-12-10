@@ -4,7 +4,7 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     ports:
-      - "8000:8000"
+      - "8001:8000"
     volumes:
       - ./data:/data:z
       - ./backend:/app:z
@@ -24,13 +24,13 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
     ports:
-      - "3000:3000"
+      - "3002:3000"
     volumes:
       - ./frontend:/app:z
       - frontend_node_modules:/app/node_modules
       - frontend_next:/app/.next
     environment:
-      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8000}
+      - NEXT_PUBLIC_API_URL=${NEXT_PUBLIC_API_URL:-http://localhost:8001}
       - NEXT_PUBLIC_API_TOKEN=${NEXT_PUBLIC_API_TOKEN:-dev-token}
     env_file:
       - ./frontend/.env
