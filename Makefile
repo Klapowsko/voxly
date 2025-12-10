@@ -1,4 +1,4 @@
-.PHONY: build up down logs test clean help
+.PHONY: build up down logs test clean help frontend-lock
 
 backend/.env:
 	@if [ ! -f backend/.env ]; then \
@@ -15,7 +15,10 @@ frontend/.env:
 		echo "Arquivo frontend/.env criado com sucesso!"; \
 	fi
 
-build: backend/.env frontend/.env
+frontend-lock: frontend/.env
+	docker compose run --rm frontend sh -c "npm install"
+
+build: backend/.env frontend/.env frontend-lock
 	docker compose build
 
 up: backend/.env frontend/.env

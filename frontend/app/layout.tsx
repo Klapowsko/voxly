@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import "./globals.css";
+import { MuiProvider } from "./mui-provider";
 
 export const metadata: Metadata = {
   title: "Voxly - Transcrição de Áudio",
@@ -13,7 +14,9 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="pt-BR">
-      <body>{children}</body>
+      <body>
+        <MuiProvider>{children}</MuiProvider>
+      </body>
     </html>
   );
 }

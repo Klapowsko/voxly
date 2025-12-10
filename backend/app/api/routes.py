@@ -7,10 +7,11 @@ from fastapi.responses import FileResponse
 from app.audio.service import save_upload
 from app.config import Settings
 from app.deps import get_app_settings, verify_token
+from app.models.history_store import HistoryStore, TranscriptionRecord, build_preview, now_iso
 from app.topics.service import generate_topics_markdown
 from app.transcription.service import transcribe_file
 from app.utils.ids import new_request_id
-from app.utils.status import set_status, get_status, clear_status
+from app.utils.status import clear_status, get_status, set_status
 
 router = APIRouter(dependencies=[Depends(verify_token)])
 
@@ -65,6 +66,23 @@ async def transcribe_audio(
             request_id_status=request_id,
         )
         set_status(request_id, "generating", 95, "Tópicos gerados com sucesso!")
+        transcript_path = settings.outputs_dir / f"{request_id}_transcript.txt"
+        transcript_path.write_text(transcript_text, encoding="utf-8")
+
+        # Persiste histórico
+        store = HistoryStore(settings.data_dir)
+        store.add(
+            TranscriptionRecord(
+                id=request_id,
+                filename=filename,
+                created_at=now_iso(),
+                audio_path=str(audio_path),
+                transcript_path=str(transcript_path),
+                markdown_path=str(markdown_path),
+                transcript_preview=build_preview(transcript_text),
+                status="done",
+            )
+        )
         
         # Concluído (100%)
         set_status(request_id, "done", 100, "Processamento concluído")
@@ -75,6 +93,7 @@ async def transcribe_audio(
             "markdown": markdown_content,
             "markdown_file": markdown_path.name,
             "download_url": f"/api/files/{markdown_path.name}",
+            "transcript_file": transcript_path.name,
         }
     except Exception as e:
         set_status(request_id, "error", 0, f"Erro: {str(e)}")
@@ -111,5 +130,97 @@ async def download_file(
         media_type="text/markdown",
         filename=Path(filename).name,
     )
+
+
+def _safe_resolve(path: Path, base_dir: Path) -> Path:
+    resolved = path.resolve()
+    if base_dir not in resolved.parents and resolved != base_dir:
+        raise HTTPException(status_code=400, detail="Caminho inválido.")
+    return resolved
+
+
+def _delete_if_exists(path: Path) -> None:
+    try:
+        if path.exists():
+            path.unlink()
+    except Exception:
+        # Melhor esforço: não interrompe fluxo por erro de remoção
+        pass
+
+
+@router.get("/history")
+async def list_history(settings: Settings = Depends(get_app_settings)) -> list[dict[str, Any]]:
+    store = HistoryStore(settings.data_dir)
+    records = store.list()
+    items: list[dict[str, Any]] = []
+    for record in records:
+        markdown_name = Path(record.markdown_path).name
+        transcript_name = Path(record.transcript_path).name
+        items.append(
+            {
+                "id": record.id,
+                "filename": record.filename,
+                "created_at": record.created_at,
+                "status": record.status,
+                "transcript_preview": record.transcript_preview,
+                "markdown_file": markdown_name,
+                "transcript_file": transcript_name,
+                "audio_file": Path(record.audio_path).name,
+                "markdown_url": f"/api/files/{markdown_name}",
+                "transcript_url": f"/api/files/{transcript_name}",
+            }
+        )
+    return items
+
+
+@router.get("/history/{request_id}")
+async def get_history_item(
+    request_id: str, settings: Settings = Depends(get_app_settings)
+) -> dict[str, Any]:
+    store = HistoryStore(settings.data_dir)
+    record = store.get(request_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Transcrição não encontrada")
+
+    transcript_path = _safe_resolve(Path(record.transcript_path), settings.data_dir)
+    markdown_path = _safe_resolve(Path(record.markdown_path), settings.data_dir)
+
+    transcript_content = transcript_path.read_text(encoding="utf-8") if transcript_path.exists() else ""
+    markdown_content = markdown_path.read_text(encoding="utf-8") if markdown_path.exists() else ""
+
+    return {
+        "id": record.id,
+        "filename": record.filename,
+        "created_at": record.created_at,
+        "status": record.status,
+        "transcript": transcript_content,
+        "markdown": markdown_content,
+        "markdown_file": Path(record.markdown_path).name,
+        "transcript_file": Path(record.transcript_path).name,
+        "markdown_url": f"/api/files/{Path(record.markdown_path).name}",
+        "transcript_url": f"/api/files/{Path(record.transcript_path).name}",
+    }
+
+
+@router.delete("/history/{request_id}", status_code=204)
+async def delete_history_item(
+    request_id: str, settings: Settings = Depends(get_app_settings)
+) -> None:
+    store = HistoryStore(settings.data_dir)
+    record = store.delete(request_id)
+    if not record:
+        raise HTTPException(status_code=404, detail="Transcrição não encontrada")
+
+    # Remove arquivos associados
+    data_dir = settings.data_dir
+    audio_path = _safe_resolve(Path(record.audio_path), data_dir)
+    transcript_path = _safe_resolve(Path(record.transcript_path), data_dir)
+    markdown_path = _safe_resolve(Path(record.markdown_path), data_dir)
+
+    _delete_if_exists(audio_path)
+    _delete_if_exists(transcript_path)
+    _delete_if_exists(markdown_path)
+
+    clear_status(request_id)
 
 
