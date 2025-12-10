@@ -99,8 +99,14 @@ def limpar_repeticoes(texto: str) -> str:
     return texto_limpo
 
 
-async def transcribe_file(path: Path, settings: Settings, request_id: str | None = None) -> str:
-    """Transcreve áudio usando Whisper open source local. Suporta áudios longos (1h+)."""
+async def transcribe_file(path: Path, settings: Settings, request_id: str | None = None) -> dict[str, str | None]:
+    """Transcreve áudio usando Whisper local.
+
+    Retorna dict:
+    - text: transcrição no idioma original
+    - language: código ISO detectado (ex.: 'en', 'pt')
+    - text_en: transcrição traduzida para inglês (via Whisper task=translate) se idioma != pt, senão None
+    """
 
     def _run() -> str:
         import time
@@ -155,12 +161,19 @@ async def transcribe_file(path: Path, settings: Settings, request_id: str | None
             print(f"[{request_id or 'N/A'}] Velocidade: {duracao_audio/elapsed:.2f}x tempo real")
         
         texto = result.get("text", "").strip()
+        language = (result.get("language") or "").strip()
+
+        texto_en = None
+        if language and language not in {"pt", "pt-BR", "pt-br"}:
+            # Usa a própria Whisper para traduzir para EN (task=translate)
+            translate_result = model.transcribe(str(path), task="translate", **options)
+            texto_en = (translate_result.get("text") or "").strip()
         
         if not texto:
             print(f"[{request_id or 'N/A'}] Aviso: Transcrição vazia!")
             if request_id:
                 set_status(request_id, "transcribing", 50, "Aviso: Transcrição vazia")
-            return ""
+            return {"text": "", "language": language or "unknown", "text_en": None}
         
         print(f"[{request_id or 'N/A'}] Texto transcrito: {len(texto)} caracteres, ~{len(texto.split())} palavras")
         
@@ -171,12 +184,17 @@ async def transcribe_file(path: Path, settings: Settings, request_id: str | None
         print(f"[{request_id or 'N/A'}] Limpando repetições...")
         texto_limpo = limpar_repeticoes(texto)
         
+        # Limpa também o texto_en se existir
+        texto_en_limpo = None
+        if texto_en:
+            texto_en_limpo = limpar_repeticoes(texto_en)
+        
         if len(texto_limpo) != len(texto):
             removidos = len(texto) - len(texto_limpo)
             print(f"[{request_id or 'N/A'}] Texto limpo: {len(texto_limpo)} caracteres (removidos {removidos} caracteres de repetições)")
             if request_id:
                 set_status(request_id, "transcribing", 58, f"Removidas {removidos} repetições")
         
-        return texto_limpo
+        return {"text": texto_limpo, "language": language or "unknown", "text_en": texto_en_limpo}
 
     return await to_thread.run_sync(_run)

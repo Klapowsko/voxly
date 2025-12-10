@@ -30,11 +30,15 @@ type Status = "idle" | "recording" | "ready" | "uploading" | "transcribing" | "g
 
 interface Result {
   request_id: string;
-  transcript: string;
+  transcript_pt: string;
+  transcript_original?: string | null;
+  language_detected?: string;
+  translated?: boolean;
   markdown: string;
   markdown_file: string;
   download_url: string;
   transcript_file?: string;
+  transcript_original_file?: string | null;
 }
 
 interface ProgressStatus {
@@ -507,14 +511,27 @@ export default function Home() {
                 <Stack spacing={2}>
                   <Box>
                     <Typography variant="subtitle1" fontWeight={700} gutterBottom>
-                      Transcrição
+                      Transcrição {result.language_detected ? `(idioma detectado: ${result.language_detected}${result.translated ? " → traduzido para pt-BR" : ""})` : ""}
                     </Typography>
                     <Paper variant="outlined" sx={{ p: 2, maxHeight: 240, overflow: "auto" }}>
                       <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
-                        {result.transcript}
+                        {result.transcript_pt}
                       </Typography>
                     </Paper>
                   </Box>
+
+                  {result.translated && result.transcript_original && (
+                    <Box>
+                      <Typography variant="subtitle1" fontWeight={700} gutterBottom>
+                        Transcrição original
+                      </Typography>
+                      <Paper variant="outlined" sx={{ p: 2, maxHeight: 240, overflow: "auto" }}>
+                        <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                          {result.transcript_original}
+                        </Typography>
+                      </Paper>
+                    </Box>
+                  )}
 
                   <Box>
                     <Typography variant="subtitle1" fontWeight={700} gutterBottom>

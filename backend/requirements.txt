@@ -11,5 +11,6 @@ torchaudio
 numpy
 ollama
 transformers
+sentencepiece
 requests
 

@@ -18,6 +18,9 @@ class TranscriptionRecord:
     markdown_path: str
     transcript_preview: str | None = None
     status: str = "done"
+    language_detected: str | None = None
+    translated: bool = False
+    transcript_original_path: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "TranscriptionRecord":

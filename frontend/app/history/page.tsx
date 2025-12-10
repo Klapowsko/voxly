@@ -37,6 +37,10 @@ interface HistoryItem {
   transcript_file: string;
   markdown_url: string;
   transcript_url: string;
+  language_detected?: string | null;
+  translated?: boolean;
+  transcript_original_file?: string | null;
+  transcript_original_url?: string | null;
 }
 
 interface HistoryDetail {
@@ -50,6 +54,11 @@ interface HistoryDetail {
   transcript_file: string;
   markdown_url: string;
   transcript_url: string;
+  language_detected?: string | null;
+  translated?: boolean;
+  transcript_original?: string | null;
+  transcript_original_file?: string | null;
+  transcript_original_url?: string | null;
 }
 
 export default function HistoryPage() {
@@ -215,7 +224,17 @@ export default function HistoryPage() {
                           </Typography>
                         )}
                       </div>
-                      <Chip size="small" label={item.status} color={item.status === "done" ? "success" : "default"} />
+                      <Stack direction="row" spacing={1}>
+                        <Chip size="small" label={item.status} color={item.status === "done" ? "success" : "default"} />
+                        {item.language_detected && (
+                          <Chip
+                            size="small"
+                            label={`${item.language_detected}${item.translated ? " → pt" : ""}`}
+                            color="primary"
+                            variant="outlined"
+                          />
+                        )}
+                      </Stack>
                     </Stack>
 
                     <Stack direction="row" spacing={1} mt={2}>
@@ -267,6 +286,11 @@ export default function HistoryPage() {
               <Typography variant="caption" color="text.secondary">
                 {new Date(selected.created_at).toLocaleString()}
               </Typography>
+              {selected.language_detected && (
+                <Typography variant="body2" color="text.secondary">
+                  Idioma: {selected.language_detected} {selected.translated ? "→ traduzido para pt-BR" : ""}
+                </Typography>
+              )}
 
               <Box>
                 <Typography variant="subtitle2" fontWeight={700} gutterBottom>
@@ -289,6 +313,19 @@ export default function HistoryPage() {
                   </Typography>
                 </Paper>
               </Box>
+
+              {selected.translated && selected.transcript_original && (
+                <Box>
+                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>
+                    Transcrição original
+                  </Typography>
+                  <Paper variant="outlined" sx={{ p: 2, maxHeight: 260, overflow: "auto" }}>
+                    <Typography variant="body2" sx={{ whiteSpace: "pre-wrap" }}>
+                      {selected.transcript_original}
+                    </Typography>
+                  </Paper>
+                </Box>
+              )}
             </Stack>
           ) : null}
         </DialogContent>
@@ -297,6 +334,11 @@ export default function HistoryPage() {
             <>
               <Button onClick={() => handleDownload(selected.markdown_url, selected.markdown_file)}>Baixar MD</Button>
               <Button onClick={() => handleDownload(selected.transcript_url, selected.transcript_file)}>Baixar TXT</Button>
+              {selected.translated && selected.transcript_original_url && selected.transcript_original_file && (
+                <Button onClick={() => handleDownload(selected.transcript_original_url, selected.transcript_original_file)}>
+                  Baixar TXT original
+                </Button>
+              )}
             </>
           )}
           <Button onClick={() => setSelected(null)}>Fechar</Button>
