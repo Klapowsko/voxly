@@ -1,8 +1,9 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
 from app.config import get_settings
+from app.websocket.routes import websocket_endpoint, websocket_endpoint_with_id
 
 
 settings = get_settings()
@@ -40,6 +41,17 @@ app.add_middleware(
 @app.get("/health")
 def health() -> dict[str, str]:
     return {"status": "ok"}
+
+
+# Rotas WebSocket
+@app.websocket("/api/ws")
+async def ws_endpoint(websocket: WebSocket):
+    await websocket_endpoint(websocket, None)
+
+
+@app.websocket("/api/ws/{request_id}")
+async def ws_endpoint_with_id(websocket: WebSocket, request_id: str):
+    await websocket_endpoint_with_id(websocket, request_id)
 
 
 app.include_router(api_router, prefix="/api")

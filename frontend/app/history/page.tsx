@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useRef } from "react";
 import Link from "next/link";
 import {
   AppBar,
@@ -31,7 +31,7 @@ interface HistoryItem {
   id: string;
   filename: string;
   created_at: string;
-  status: string;
+  status: string; // "processing", "done", "error"
   transcript_preview?: string | null;
   markdown_file: string;
   transcript_file: string;
@@ -41,6 +41,7 @@ interface HistoryItem {
   translated?: boolean;
   transcript_original_file?: string | null;
   transcript_original_url?: string | null;
+  error_message?: string | null;
 }
 
 interface HistoryDetail {
@@ -68,6 +69,7 @@ export default function HistoryPage() {
   const [selected, setSelected] = useState<HistoryDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const itemsRef = useRef<HistoryItem[]>([]);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL as string;
   const apiToken = process.env.NEXT_PUBLIC_API_TOKEN as string;
@@ -92,6 +94,7 @@ export default function HistoryPage() {
       }
       const data: HistoryItem[] = await resp.json();
       setItems(data);
+      itemsRef.current = data; // Atualiza a ref também
     } catch (err) {
       setError(err instanceof Error ? err.message : "Erro ao carregar histórico");
     } finally {
@@ -101,6 +104,16 @@ export default function HistoryPage() {
 
   useEffect(() => {
     fetchHistory();
+    // Polling para atualizar histórico apenas se houver itens em processamento
+    const interval = setInterval(() => {
+      // Verifica se há itens em processamento usando a ref (sem causar re-render)
+      const hasProcessingItems = itemsRef.current.some(item => item.status === "processing");
+      if (hasProcessingItems) {
+        // Atualiza o histórico se houver itens processando
+        fetchHistory();
+      }
+    }, 10000); // Verifica a cada 10 segundos (menos frequente)
+    return () => clearInterval(interval);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -134,7 +147,11 @@ export default function HistoryPage() {
       if (!resp.ok) {
         throw new Error(`Erro ${resp.status}`);
       }
-      setItems((prev) => prev.filter((item) => item.id !== id));
+      setItems((prev) => {
+        const newItems = prev.filter((item) => item.id !== id);
+        itemsRef.current = newItems; // Atualiza a ref também
+        return newItems;
+      });
       if (selected?.id === id) {
         setSelected(null);
       }
@@ -244,15 +261,38 @@ export default function HistoryPage() {
                         <Typography variant="caption" color="text.secondary">
                           {new Date(item.created_at).toLocaleString()}
                         </Typography>
-                        {item.transcript_preview && (
+                        {item.status === "error" && item.error_message && (
+                          <Alert severity="error" sx={{ mt: 1, py: 0.5 }}>
+                            {item.error_message}
+                          </Alert>
+                        )}
+                        {item.transcript_preview && item.status === "done" && (
                           <Typography variant="body2" color="text.secondary" mt={1}>
                             {item.transcript_preview}
                           </Typography>
                         )}
+                        {item.status === "processing" && (
+                          <Typography variant="body2" color="text.secondary" mt={1}>
+                            Processando transcrição...
+                          </Typography>
+                        )}
                       </div>
-                      <Stack direction="row" spacing={1}>
-                        <Chip size="small" label={item.status} color={item.status === "done" ? "success" : "default"} />
-                        {item.language_detected && (
+                      <Stack direction="row" spacing={1} alignItems="center">
+                        {item.status === "processing" && (
+                          <Chip
+                            size="small"
+                            label="Processando"
+                            color="warning"
+                            icon={<CircularProgress size={16} />}
+                          />
+                        )}
+                        {item.status === "done" && (
+                          <Chip size="small" label="Concluído" color="success" />
+                        )}
+                        {item.status === "error" && (
+                          <Chip size="small" label="Erro" color="error" />
+                        )}
+                        {item.language_detected && item.status === "done" && (
                           <Chip
                             size="small"
                             label={`${item.language_detected}${item.translated ? " → pt" : ""}`}
@@ -269,7 +309,7 @@ export default function HistoryPage() {
                         variant="contained"
                         startIcon={<VisibilityIcon />}
                         onClick={() => openDetail(item.id)}
-                        disabled={detailLoading && selected?.id === item.id}
+                        disabled={(item.status === "processing" || item.status === "error") || (detailLoading && selected?.id === item.id)}
                       >
                         Ver
                       </Button>

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, ChangeEvent } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import {
   AppBar,
   Toolbar,
@@ -26,8 +27,9 @@ import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import UploadFileIcon from "@mui/icons-material/UploadFile";
 import RefreshIcon from "@mui/icons-material/Refresh";
 import ScreenShareIcon from "@mui/icons-material/ScreenShare";
+import { useWebSocket } from "./hooks/useWebSocket";
 
-type Status = "idle" | "recording" | "capturing_system" | "ready" | "uploading" | "transcribing" | "generating" | "done" | "error";
+type Status = "idle" | "recording" | "capturing_system" | "ready" | "uploading" | "processing" | "transcribing" | "generating" | "done" | "error";
 
 interface Result {
   request_id: string;
@@ -50,6 +52,7 @@ interface ProgressStatus {
 }
 
 export default function Home() {
+  const router = useRouter();
   const [status, setStatus] = useState<Status>("idle");
   const [recordingTime, setRecordingTime] = useState(0);
   const [result, setResult] = useState<Result | null>(null);
@@ -76,6 +79,57 @@ export default function Home() {
   if (!apiToken) {
     throw new Error("NEXT_PUBLIC_API_TOKEN não está configurada. Configure no arquivo .env");
   }
+
+  // Conecta ao WebSocket quando há um request_id ativo
+  const { lastMessage } = useWebSocket({
+    requestId: currentRequestId,
+    enabled: !!currentRequestId,
+    onMessage: (message) => {
+      console.log("Mensagem WebSocket recebida:", message);
+      if (message.type === "status_update") {
+        // Atualiza progresso em tempo real
+        const newProgress = {
+          stage: message.status,
+          progress: message.progress || 0,
+          message: message.message || "",
+          updated_at: new Date().toISOString(),
+        };
+        setProgress(newProgress);
+
+        // Se concluído, redireciona para histórico
+        if (message.status === "done") {
+          console.log("Processamento concluído, redirecionando para histórico...");
+          // Limpa o intervalo de verificação de status
+          if (statusPollIntervalRef.current) {
+            clearInterval(statusPollIntervalRef.current);
+            statusPollIntervalRef.current = null;
+          }
+          setStatus("done");
+          setProgress({
+            stage: "done",
+            progress: 100,
+            message: "Processamento concluído! Redirecionando...",
+            updated_at: new Date().toISOString(),
+          });
+          // Redireciona imediatamente
+          router.push("/history");
+        } else if (message.status === "error") {
+          // Limpa o intervalo de verificação de status
+          if (statusPollIntervalRef.current) {
+            clearInterval(statusPollIntervalRef.current);
+            statusPollIntervalRef.current = null;
+          }
+          setStatus("error");
+          setError(message.message || "Erro no processamento");
+        } else {
+          // Mantém status como "processing" durante o processamento
+          if (status !== "processing") {
+            setStatus("processing");
+          }
+        }
+      }
+    },
+  });
 
   // Verifica suporte para captura de áudio do sistema
   useEffect(() => {
@@ -513,9 +567,70 @@ export default function Home() {
         throw new Error(errorData.detail || `Erro ${response.status}`);
       }
 
-      const data: Result = await response.json();
-      setCurrentRequestId(data.request_id);
-      setResult(data);
+      const data = await response.json();
+      
+      // Nova resposta assíncrona: 202 Accepted com status "processing"
+      if (response.status === 202 || data.status === "processing") {
+        setCurrentRequestId(data.request_id);
+        setStatus("processing");
+        setProgress({ 
+          stage: "processing", 
+          progress: 10, 
+          message: data.message || "Processamento iniciado em background...", 
+          updated_at: new Date().toISOString() 
+        });
+        setPendingFile(null);
+        setPendingSource(null);
+        // WebSocket será conectado automaticamente via hook useWebSocket
+        
+        // Fallback: verifica periodicamente se o processamento terminou (caso WebSocket falhe)
+        // Limpa intervalo anterior se existir
+        if (statusPollIntervalRef.current) {
+          clearInterval(statusPollIntervalRef.current);
+        }
+        
+        statusPollIntervalRef.current = setInterval(async () => {
+          try {
+            const statusResp = await fetch(`${apiUrl}/api/status/${data.request_id}`, {
+              headers: { "X-API-TOKEN": apiToken },
+            });
+            if (statusResp.ok) {
+              const statusData = await statusResp.json();
+              if (statusData.stage === "done") {
+                if (statusPollIntervalRef.current) {
+                  clearInterval(statusPollIntervalRef.current);
+                  statusPollIntervalRef.current = null;
+                }
+                console.log("Status verificado: done, redirecionando...");
+                setStatus("done");
+                setProgress({
+                  stage: "done",
+                  progress: 100,
+                  message: "Processamento concluído! Redirecionando...",
+                  updated_at: new Date().toISOString(),
+                });
+                router.push("/history");
+              } else if (statusData.stage === "error") {
+                if (statusPollIntervalRef.current) {
+                  clearInterval(statusPollIntervalRef.current);
+                  statusPollIntervalRef.current = null;
+                }
+                setStatus("error");
+                setError(statusData.message || "Erro no processamento");
+              }
+            }
+          } catch (err) {
+            // Ignora erros de verificação
+          }
+        }, 3000); // Verifica a cada 3 segundos
+        
+        return;
+      }
+
+      // Resposta antiga (síncrona) - mantém compatibilidade
+      const resultData: Result = data;
+      setCurrentRequestId(resultData.request_id);
+      setResult(resultData);
       setStatus("done");
       setProgress({ stage: "done", progress: 100, message: "Processamento concluído!", updated_at: new Date().toISOString() });
       setPendingFile(null);
@@ -595,6 +710,8 @@ export default function Home() {
         return "Pronto para enviar";
       case "uploading":
         return "Enviando";
+      case "processing":
+        return "Processando";
       case "transcribing":
         return "Transcrevendo";
       case "generating":
@@ -695,12 +812,13 @@ export default function Home() {
                   </Stack>
                 )}
 
-                {(status === "uploading" || status === "transcribing" || status === "generating") && (
+                {(status === "uploading" || status === "processing" || status === "transcribing" || status === "generating") && (
                   <Stack flex={1} spacing={1}>
                     <LinearProgress variant="determinate" value={progress?.progress || 0} />
                     <Typography variant="body2" color="text.secondary">
                       {progress?.message ||
                         (status === "uploading" && "Enviando áudio...") ||
+                        (status === "processing" && "Processando em background...") ||
                         (status === "transcribing" && "Transcrevendo com Whisper...") ||
                         (status === "generating" && "Gerando tópicos em Markdown...") ||
                         ""}

@@ -17,10 +17,11 @@ class TranscriptionRecord:
     transcript_path: str
     markdown_path: str
     transcript_preview: str | None = None
-    status: str = "done"
+    status: str = "done"  # "processing", "done", "error"
     language_detected: str | None = None
     translated: bool = False
     transcript_original_path: str | None = None
+    error_message: str | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "TranscriptionRecord":
