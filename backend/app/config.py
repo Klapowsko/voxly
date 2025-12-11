@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     ollama_model: str | None = "llama3.2"  # None para desabilitar Ollama
     ollama_url: str = "http://localhost:11434"  # URL do servidor Ollama
     data_dir: Path = Path("/data")
+    cors_origins: str = "http://localhost:3000,http://localhost:3002,http://127.0.0.1:3000,http://127.0.0.1:3002,https://voxly.klapowsko.com,https://voxly-api.klapowsko.com,http://voxly.klapowsko.com,http://voxly-api.klapowsko.com"  # Origens permitidas para CORS (separadas por vírgula)
 
     model_config = SettingsConfigDict(
         env_file=".env",
