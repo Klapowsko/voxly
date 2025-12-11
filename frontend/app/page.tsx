@@ -66,8 +66,16 @@ export default function Home() {
   const statusPollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const shouldPersistRecordingRef = useRef(false);
 
-  const apiUrl = (process.env.NEXT_PUBLIC_API_URL as string) || "http://localhost:8000";
-  const apiToken = (process.env.NEXT_PUBLIC_API_TOKEN as string) || "dev-token";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL as string;
+  const apiToken = process.env.NEXT_PUBLIC_API_TOKEN as string;
+  
+  if (!apiUrl) {
+    throw new Error("NEXT_PUBLIC_API_URL não está configurada. Configure no arquivo .env");
+  }
+  
+  if (!apiToken) {
+    throw new Error("NEXT_PUBLIC_API_TOKEN não está configurada. Configure no arquivo .env");
+  }
 
   // Verifica suporte para captura de áudio do sistema
   useEffect(() => {

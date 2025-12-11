@@ -69,8 +69,16 @@ export default function HistoryPage() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
 
-  const apiUrl = (process.env.NEXT_PUBLIC_API_URL as string) || "http://localhost:8000";
-  const apiToken = (process.env.NEXT_PUBLIC_API_TOKEN as string) || "dev-token";
+  const apiUrl = process.env.NEXT_PUBLIC_API_URL as string;
+  const apiToken = process.env.NEXT_PUBLIC_API_TOKEN as string;
+  
+  if (!apiUrl) {
+    throw new Error("NEXT_PUBLIC_API_URL não está configurada. Configure no arquivo .env");
+  }
+  
+  if (!apiToken) {
+    throw new Error("NEXT_PUBLIC_API_TOKEN não está configurada. Configure no arquivo .env");
+  }
 
   const fetchHistory = async () => {
     setLoading(true);
@@ -383,7 +391,7 @@ export default function HistoryPage() {
               <Button onClick={() => handleDownload(selected.markdown_url, selected.markdown_file)}>Baixar MD</Button>
               <Button onClick={() => handleDownload(selected.transcript_url, selected.transcript_file)}>Baixar TXT</Button>
               {selected.translated && selected.transcript_original_url && selected.transcript_original_file && (
-                <Button onClick={() => handleDownload(selected.transcript_original_url, selected.transcript_original_file)}>
+                <Button onClick={() => handleDownload(selected.transcript_original_url!, selected.transcript_original_file!)}>
                   Baixar TXT original
                 </Button>
               )}
