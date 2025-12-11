@@ -13,13 +13,27 @@ app = FastAPI(
 )
 
 # Configuração CORS
-# Permite qualquer subdomínio de klapowsko.com (HTTPS e HTTP) e localhost em qualquer porta
+# Lista explícita de origens permitidas
+cors_origins = [
+    "http://localhost:3000",
+    "http://localhost:3002",
+    "http://127.0.0.1:3000",
+    "http://127.0.0.1:3002",
+    "https://voxly.klapowsko.com",
+    "http://voxly.klapowsko.com",
+    "https://voxly-api.klapowsko.com",
+    "http://voxly-api.klapowsko.com",
+    "https://klapowsko.com",
+    "http://klapowsko.com",
+]
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origin_regex=r"https?://.*\.klapowsko\.com|https?://klapowsko\.com|http://localhost:\d+|http://127\.0\.0\.1:\d+",
+    allow_origins=cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
