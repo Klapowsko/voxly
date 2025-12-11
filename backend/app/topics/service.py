@@ -666,3 +666,183 @@ async def generate_topics_markdown(
         return resultado, output_path
     
     return await to_thread.run_sync(_run)
+
+
+PROMPT_TITULO = """Analise e interprete o seguinte texto transcrito de um áudio. Identifique o tema principal, a mensagem central e o contexto do conteúdo.
+
+IMPORTANTE:
+- NÃO copie pedaços do texto diretamente
+- INTERPRETE o conteúdo e crie um título original que sintetize a ideia principal
+- Analise TODO o conteúdo para entender o tema central
+- Crie um título que seja uma síntese inteligente do que foi discutido
+
+REQUISITOS:
+- Título deve ter no máximo 60-80 caracteres
+- Deve ser uma interpretação e síntese do conteúdo, não uma cópia
+- Deve capturar o tema principal de forma criativa e descritiva
+- Deve ser claro, objetivo e informativo
+- Sem aspas ou formatação extra
+- Em português brasileiro
+- Apenas o título, sem explicações ou comentários adicionais
+
+TEXTO:
+{texto}
+
+Analise o conteúdo completo, identifique o tema principal e gere um título original que sintetize a mensagem central. NÃO copie partes do texto."""
+
+
+def usar_huggingface_titulo(texto: str, request_id: str | None = None) -> str | None:
+    """Usa Hugging Face para gerar título através de sumarização e interpretação."""
+    try:
+        from transformers import pipeline
+    except ImportError:
+        print(f"[{request_id or 'N/A'}] Hugging Face não disponível para geração de título")
+        return None
+    
+    try:
+        print(f"[{request_id or 'N/A'}] Gerando título com Hugging Face (sumarização)...")
+        # Usa modelo de sumarização para extrair ideia principal
+        summarizer = pipeline(
+            "summarization",
+            model="facebook/bart-large-cnn",
+            device=-1  # CPU
+        )
+        
+        # Limita o texto para processamento (modelos têm limite de tokens)
+        texto_limitado = texto[:2000] if len(texto) > 2000 else texto
+        
+        # Gera resumo muito curto (máximo 50 palavras) para extrair ideia principal
+        resultado = summarizer(
+            texto_limitado,
+            max_length=50,  # Resumo bem curto
+            min_length=10,  # Mínimo para ter conteúdo
+            do_sample=False
+        )
+        
+        resumo = resultado[0]["summary_text"].strip()
+        
+        # Processa o resumo para criar título
+        # Remove pontuação final se houver
+        import re
+        resumo = re.sub(r'[.!?]+$', '', resumo)
+        
+        # Se o resumo for muito longo, tenta extrair a primeira sentença ou frase principal
+        if len(resumo) > 80:
+            # Pega primeira sentença ou primeiras palavras
+            sentencas = re.split(r'[.!?]+', resumo)
+            if sentencas:
+                resumo = sentencas[0].strip()
+        
+        # Limita tamanho final
+        if len(resumo) > 80:
+            resumo = resumo[:77] + "..."
+        
+        # Remove aspas se houver
+        resumo = resumo.strip('"').strip("'").strip()
+        
+        if resumo and len(resumo) > 10:
+            print(f"[{request_id or 'N/A'}] ✓ Título gerado com Hugging Face: {resumo}")
+            return resumo
+        
+        return None
+    except Exception as e:
+        print(f"[{request_id or 'N/A'}] Erro ao gerar título com Hugging Face: {e}")
+        return None
+
+
+def usar_ollama_titulo(texto: str, modelo: str = "llama3.2", ollama_url: str = "http://localhost:11434", request_id: str | None = None) -> str | None:
+    """Usa Ollama para gerar título."""
+    try:
+        import ollama
+    except ImportError:
+        return None
+    
+    try:
+        # Usa mais texto para melhor interpretação (até 4000 caracteres)
+        prompt = PROMPT_TITULO.format(texto=texto[:4000] if len(texto) > 4000 else texto)
+        response = ollama.chat(
+            model=modelo,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "Você é um especialista em análise de conteúdo e criação de títulos. Sempre INTERPRETE o conteúdo e crie um título original que sintetize a ideia principal. NUNCA copie pedaços do texto diretamente. Gere apenas o título, sem aspas ou formatação."
+                },
+                {
+                    "role": "user",
+                    "content": prompt
+                }
+            ],
+            options={
+                "temperature": 0.3,
+                "num_predict": 100,  # Títulos são curtos
+            }
+        )
+        resultado = response["message"]["content"].strip()
+        # Remove aspas se houver
+        resultado = resultado.strip('"').strip("'").strip()
+        # Limita tamanho
+        if len(resultado) > 80:
+            resultado = resultado[:77] + "..."
+        return resultado if resultado else None
+    except Exception:
+        # Tenta API HTTP
+        try:
+            import requests
+            response = requests.post(
+                f"{ollama_url}/api/chat",
+                json={
+                    "model": modelo,
+                    "messages": [
+                        {
+                            "role": "system",
+                            "content": "Você é um especialista em análise de conteúdo e criação de títulos. Sempre INTERPRETE o conteúdo e crie um título original que sintetize a ideia principal. NUNCA copie pedaços do texto diretamente."
+                        },
+                        {"role": "user", "content": prompt}
+                    ],
+                    "stream": False,
+                    "options": {
+                        "temperature": 0.3,
+                        "num_predict": 100,
+                    }
+                },
+                timeout=30
+            )
+            if response.status_code == 200:
+                resultado = response.json()["message"]["content"].strip()
+                resultado = resultado.strip('"').strip("'").strip()
+                if len(resultado) > 80:
+                    resultado = resultado[:77] + "..."
+                return resultado if resultado else None
+        except Exception:
+            pass
+    return None
+
+
+def generate_title(transcript: str, settings: Settings, request_id: str | None = None) -> str:
+    """Gera título descritivo para a transcrição usando IA.
+    
+    Sempre tenta interpretar o conteúdo ao invés de copiar pedaços do texto.
+    Retorna o título gerado ou string vazia se falhar (para usar filename como fallback).
+    """
+    if not transcript or len(transcript.strip()) < 10:
+        return ""
+    
+    print(f"[{request_id or 'N/A'}] Gerando título interpretando conteúdo...")
+    
+    # Tenta Ollama primeiro (melhor para interpretação)
+    if settings.ollama_model:
+        resultado = usar_ollama_titulo(transcript, settings.ollama_model, settings.ollama_url, request_id)
+        if resultado and len(resultado.strip()) > 5:
+            print(f"[{request_id or 'N/A'}] ✓ Título gerado com Ollama: {resultado}")
+            return resultado
+    
+    # Se Ollama não funcionou, tenta Hugging Face (sumarização)
+    resultado = usar_huggingface_titulo(transcript, request_id)
+    if resultado and len(resultado.strip()) > 5:
+        print(f"[{request_id or 'N/A'}] ✓ Título gerado com Hugging Face: {resultado}")
+        return resultado
+    
+    # Se nenhum método de IA funcionou, retorna string vazia
+    # O fallback para filename será feito em background.py
+    print(f"[{request_id or 'N/A'}] Não foi possível gerar título com IA, usando filename como fallback")
+    return ""

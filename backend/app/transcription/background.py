@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.config import Settings
 from app.models.history_store import HistoryStore, TranscriptionRecord, build_preview, now_iso
-from app.topics.service import generate_topics_markdown
+from app.topics.service import generate_topics_markdown, generate_title
 from app.transcription.service import transcribe_file
 from app.transcription.translate import translate_en_to_pt
 from app.utils.status import set_status, update_status_with_websocket
@@ -80,6 +80,19 @@ async def process_transcription_async(
         )
         logger.info(f"[{request_id}] Tópicos gerados, salvando arquivos...")
 
+        # Gera título para a transcrição
+        await update_status_with_websocket(
+            request_id, "processing", 93, "Gerando título descritivo..."
+        )
+        logger.info(f"[{request_id}] Gerando título...")
+        generated_title = generate_title(transcript_pt, settings=settings, request_id=request_id)
+        # Se não gerou título ou está vazio, usa o filename como fallback
+        title = generated_title.strip() if generated_title else filename
+        # Limita tamanho do título
+        if len(title) > 80:
+            title = title[:77] + "..."
+        logger.info(f"[{request_id}] Título gerado: {title}")
+
         # Salva arquivos
         await update_status_with_websocket(
             request_id, "processing", 95, "Salvando arquivos..."
@@ -113,6 +126,7 @@ async def process_transcription_async(
                 language_detected=language_detected,
                 translated=translated,
                 transcript_original_path=str(transcript_original_path) if transcript_original_path else None,
+                title=title,
             )
         )
         logger.info(f"[{request_id}] Histórico atualizado")

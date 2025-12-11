@@ -22,6 +22,7 @@ class TranscriptionRecord:
     translated: bool = False
     transcript_original_path: str | None = None
     error_message: str | None = None
+    title: str | None = None  # Título gerado automaticamente pela IA
 
     @classmethod
     def from_dict(cls, data: dict) -> "TranscriptionRecord":

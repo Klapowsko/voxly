@@ -26,10 +26,13 @@ import {
 import DeleteIcon from "@mui/icons-material/DeleteOutline";
 import VisibilityIcon from "@mui/icons-material/Visibility";
 import RefreshIcon from "@mui/icons-material/Refresh";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import CheckIcon from "@mui/icons-material/Check";
 
 interface HistoryItem {
   id: string;
   filename: string;
+  title?: string | null;
   created_at: string;
   status: string; // "processing", "done", "error"
   transcript_preview?: string | null;
@@ -47,6 +50,7 @@ interface HistoryItem {
 interface HistoryDetail {
   id: string;
   filename: string;
+  title?: string | null;
   created_at: string;
   status: string;
   transcript: string;
@@ -69,6 +73,7 @@ export default function HistoryPage() {
   const [selected, setSelected] = useState<HistoryDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
   const [deleting, setDeleting] = useState<string | null>(null);
+  const [copied, setCopied] = useState<string | null>(null);
   const itemsRef = useRef<HistoryItem[]>([]);
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL as string;
@@ -182,6 +187,16 @@ export default function HistoryPage() {
     }
   };
 
+  const handleCopy = async (text: string, type: string) => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(type);
+      setTimeout(() => setCopied(null), 2000); // Remove o feedback após 2 segundos
+    } catch (err) {
+      setError("Erro ao copiar para clipboard");
+    }
+  };
+
   return (
     <>
       <AppBar position="static" color="transparent" elevation={0}>
@@ -256,8 +271,13 @@ export default function HistoryPage() {
                     <Stack direction="row" justifyContent="space-between" alignItems="flex-start" spacing={1}>
                       <div>
                         <Typography variant="subtitle1" fontWeight={700}>
-                          {item.filename}
+                          {item.title || item.filename}
                         </Typography>
+                        {item.title && item.title !== item.filename && (
+                          <Typography variant="caption" color="text.secondary" display="block">
+                            {item.filename}
+                          </Typography>
+                        )}
                         <Typography variant="caption" color="text.secondary">
                           {new Date(item.created_at).toLocaleString()}
                         </Typography>
@@ -347,8 +367,13 @@ export default function HistoryPage() {
           ) : selected ? (
             <Stack spacing={2}>
               <Typography variant="subtitle1" fontWeight={700}>
-                {selected.filename}
+                {selected.title || selected.filename}
               </Typography>
+              {selected.title && selected.title !== selected.filename && (
+                <Typography variant="caption" color="text.secondary">
+                  {selected.filename}
+                </Typography>
+              )}
               <Typography variant="caption" color="text.secondary">
                 {new Date(selected.created_at).toLocaleString()}
               </Typography>
@@ -359,9 +384,21 @@ export default function HistoryPage() {
               )}
 
               <Box>
-                <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-                  Transcrição
-                </Typography>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    Transcrição
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    onClick={() => handleCopy(selected.transcript, "transcript")}
+                    title="Copiar transcrição"
+                    sx={{
+                      color: copied === "transcript" ? "success.main" : "inherit",
+                    }}
+                  >
+                    {copied === "transcript" ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                  </IconButton>
+                </Stack>
                 <Paper 
                   variant="outlined" 
                   sx={{ 
@@ -380,9 +417,21 @@ export default function HistoryPage() {
               </Box>
 
               <Box>
-                <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-                  Tópicos (Markdown)
-                </Typography>
+                <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+                  <Typography variant="subtitle2" fontWeight={700}>
+                    Tópicos (Markdown)
+                  </Typography>
+                  <IconButton
+                    size="small"
+                    onClick={() => handleCopy(selected.markdown, "markdown")}
+                    title="Copiar markdown"
+                    sx={{
+                      color: copied === "markdown" ? "success.main" : "inherit",
+                    }}
+                  >
+                    {copied === "markdown" ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                  </IconButton>
+                </Stack>
                 <Paper 
                   variant="outlined" 
                   sx={{ 
@@ -402,9 +451,21 @@ export default function HistoryPage() {
 
               {selected.translated && selected.transcript_original && (
                 <Box>
-                  <Typography variant="subtitle2" fontWeight={700} gutterBottom>
-                    Transcrição original
-                  </Typography>
+                  <Stack direction="row" justifyContent="space-between" alignItems="center" mb={1}>
+                    <Typography variant="subtitle2" fontWeight={700}>
+                      Transcrição original
+                    </Typography>
+                    <IconButton
+                      size="small"
+                      onClick={() => handleCopy(selected.transcript_original!, "transcript_original")}
+                      title="Copiar transcrição original"
+                      sx={{
+                        color: copied === "transcript_original" ? "success.main" : "inherit",
+                      }}
+                    >
+                      {copied === "transcript_original" ? <CheckIcon fontSize="small" /> : <ContentCopyIcon fontSize="small" />}
+                    </IconButton>
+                  </Stack>
                   <Paper 
                     variant="outlined" 
                     sx={{ 

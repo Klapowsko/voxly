@@ -174,6 +174,7 @@ async def list_history(settings: Settings = Depends(get_app_settings)) -> list[d
             {
                 "id": record.id,
                 "filename": record.filename,
+                "title": record.title or record.filename,  # Usa título se disponível, senão filename
                 "created_at": record.created_at,
                 "status": record.status,
                 "transcript_preview": record.transcript_preview,
@@ -206,6 +207,7 @@ async def get_history_item(
     return {
         "id": record.id,
         "filename": record.filename,
+        "title": record.title or record.filename,  # Usa título se disponível, senão filename
         "created_at": record.created_at,
         "status": record.status,
         "transcript": transcript_content,
