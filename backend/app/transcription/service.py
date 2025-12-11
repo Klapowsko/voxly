@@ -8,6 +8,14 @@ import whisper
 from app.config import Settings
 
 
+def _notify_status_sync(request_id: str | None, stage: str, progress: int, message: str) -> None:
+    """Helper para notificar status via WebSocket em contexto síncrono."""
+    if not request_id:
+        return
+    from app.utils.status import notify_status_from_thread
+    notify_status_from_thread(request_id, stage, progress, message)
+
+
 def limpar_repeticoes(texto: str) -> str:
     """Remove repetições excessivas de frases do texto transcrito."""
     if not texto:
@@ -124,16 +132,15 @@ async def transcribe_file(path: Path, settings: Settings, request_id: str | None
         start_time = time.time()
         
         # Atualiza status se request_id fornecido
-        if request_id:
-            from app.utils.status import set_status
-            set_status(request_id, "transcribing", 30, "Carregando modelo Whisper...")
+        _notify_status_sync(request_id, "transcribing", 10, "Preparando transcrição...")
+        _notify_status_sync(request_id, "transcribing", 15, "Carregando modelo Whisper...")
         
         # Carrega o modelo Whisper
         model = whisper.load_model(settings.whisper_model, device=device)
         print(f"[{request_id or 'N/A'}] Modelo carregado. Iniciando transcrição...")
         
-        if request_id:
-            set_status(request_id, "transcribing", 40, "Processando áudio com Whisper...")
+        _notify_status_sync(request_id, "transcribing", 35, "Modelo carregado, iniciando processamento...")
+        _notify_status_sync(request_id, "transcribing", 40, "Processando áudio com Whisper...")
         
         # Ajustes otimizados para melhor qualidade de transcrição
         options = dict(
@@ -166,19 +173,19 @@ async def transcribe_file(path: Path, settings: Settings, request_id: str | None
         texto_en = None
         if language and language not in {"pt", "pt-BR", "pt-br"}:
             # Usa a própria Whisper para traduzir para EN (task=translate)
+            _notify_status_sync(request_id, "transcribing", 45, "Traduzindo para inglês (Whisper)...")
             translate_result = model.transcribe(str(path), task="translate", **options)
             texto_en = (translate_result.get("text") or "").strip()
         
         if not texto:
             print(f"[{request_id or 'N/A'}] Aviso: Transcrição vazia!")
-            if request_id:
-                set_status(request_id, "transcribing", 50, "Aviso: Transcrição vazia")
+            _notify_status_sync(request_id, "transcribing", 50, "Aviso: Transcrição vazia")
             return {"text": "", "language": language or "unknown", "text_en": None}
         
         print(f"[{request_id or 'N/A'}] Texto transcrito: {len(texto)} caracteres, ~{len(texto.split())} palavras")
         
-        if request_id:
-            set_status(request_id, "transcribing", 55, f"Limpando repetições ({len(texto)} caracteres)...")
+        _notify_status_sync(request_id, "transcribing", 50, f"Transcrição concluída ({len(texto)} caracteres)")
+        _notify_status_sync(request_id, "transcribing", 55, f"Limpando repetições ({len(texto)} caracteres)...")
         
         # Limpa repetições excessivas
         print(f"[{request_id or 'N/A'}] Limpando repetições...")
@@ -192,8 +199,9 @@ async def transcribe_file(path: Path, settings: Settings, request_id: str | None
         if len(texto_limpo) != len(texto):
             removidos = len(texto) - len(texto_limpo)
             print(f"[{request_id or 'N/A'}] Texto limpo: {len(texto_limpo)} caracteres (removidos {removidos} caracteres de repetições)")
-            if request_id:
-                set_status(request_id, "transcribing", 58, f"Removidas {removidos} repetições")
+            _notify_status_sync(request_id, "transcribing", 58, f"Removidas {removidos} caracteres de repetições")
+        else:
+            _notify_status_sync(request_id, "transcribing", 58, "Limpeza concluída")
         
         return {"text": texto_limpo, "language": language or "unknown", "text_en": texto_en_limpo}
 

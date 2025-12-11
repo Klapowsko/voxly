@@ -1,8 +1,11 @@
+import asyncio
+
 from fastapi import FastAPI, WebSocket
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import router as api_router
 from app.config import get_settings
+from app.utils.status import set_main_loop
 from app.websocket.routes import websocket_endpoint, websocket_endpoint_with_id
 
 
@@ -55,5 +58,12 @@ async def ws_endpoint_with_id(websocket: WebSocket, request_id: str):
 
 
 app.include_router(api_router, prefix="/api")
+
+
+@app.on_event("startup")
+async def startup_event():
+    """Inicializa o processamento da fila de status ao iniciar a aplicação."""
+    loop = asyncio.get_event_loop()
+    set_main_loop(loop)
 
 

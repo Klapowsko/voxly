@@ -6,6 +6,14 @@ from anyio import to_thread
 from app.config import Settings
 
 
+def _notify_status_sync(request_id: str | None, stage: str, progress: int, message: str) -> None:
+    """Helper para notificar status via WebSocket em contexto síncrono."""
+    if not request_id:
+        return
+    from app.utils.status import notify_status_from_thread
+    notify_status_from_thread(request_id, stage, progress, message)
+
+
 PROMPT_TOPICOS = """Você é um especialista em análise e organização de conteúdo. Analise o seguinte texto transcrito de um áudio e crie uma estrutura de tópicos PROFUNDA, DETALHADA e COMPLETA, cobrindo TODOS os assuntos importantes mencionados.
 
 INSTRUÇÕES DETALHADAS:
@@ -181,6 +189,8 @@ def usar_huggingface(texto: str, request_id: str | None = None) -> str | None:
         return None
     
     try:
+        if request_id:
+            _notify_status_sync(request_id, "generating", 72, "Carregando modelo Hugging Face (pode demorar na primeira vez)...")
         print(f"[{request_id or 'N/A'}] Carregando modelo Hugging Face (pode demorar na primeira vez)...")
         # Usa um modelo de sumarização para extrair pontos-chave
         summarizer = pipeline(
@@ -189,6 +199,8 @@ def usar_huggingface(texto: str, request_id: str | None = None) -> str | None:
             device=-1  # CPU
         )
         print(f"[{request_id or 'N/A'}] Modelo Hugging Face carregado")
+        if request_id:
+            _notify_status_sync(request_id, "generating", 74, "Modelo Hugging Face carregado")
         
         # Divide o texto em chunks menores para processar mais conteúdo
         # Chunks menores permitem mais tópicos
@@ -196,6 +208,8 @@ def usar_huggingface(texto: str, request_id: str | None = None) -> str | None:
         palavras_por_chunk = 400  # Chunks menores para mais granularidade
         num_chunks = max(10, len(palavras) // palavras_por_chunk)  # Mínimo 10 chunks, mais se necessário
         print(f"[{request_id or 'N/A'}] Dividindo texto em {num_chunks} chunks...")
+        if request_id:
+            _notify_status_sync(request_id, "generating", 75, f"Dividindo texto em {num_chunks} chunks...")
         
         chunks = []
         for i in range(0, len(palavras), palavras_por_chunk):
@@ -208,10 +222,10 @@ def usar_huggingface(texto: str, request_id: str | None = None) -> str | None:
         
         for i, chunk in enumerate(chunks):
             try:
-                if request_id and (i + 1) % 3 == 0:  # Atualiza a cada 3 chunks
+                # Atualiza progresso para cada chunk (mais frequente)
+                if request_id:
                     progresso = 75 + int((i + 1) / len(chunks) * 15)
-                    from app.utils.status import set_status
-                    set_status(request_id, "generating", progresso, f"Processando chunk {i + 1}/{len(chunks)}...")
+                    _notify_status_sync(request_id, "generating", progresso, f"Processando chunk {i + 1}/{len(chunks)}...")
                 
                 # Gera resumo do chunk
                 resultado = summarizer(
@@ -590,19 +604,20 @@ async def generate_topics_markdown(
         print(f"[{request_id_status or request_id}] Tamanho do texto: {tamanho_texto} caracteres, ~{num_palavras} palavras")
         
         if request_id_status:
-            set_status(request_id_status, "generating", 70, f"Analisando texto ({num_palavras} palavras)...")
+            _notify_status_sync(request_id_status, "generating", 70, f"Analisando texto ({num_palavras} palavras)...")
         
         # Tenta Ollama primeiro
         if settings.ollama_model:
             print(f"[{request_id_status or request_id}] Tentando usar Ollama (modelo: {settings.ollama_model})...")
             if request_id_status:
-                set_status(request_id_status, "generating", 75, f"Gerando tópicos com Ollama ({settings.ollama_model})...")
+                _notify_status_sync(request_id_status, "generating", 72, f"Carregando modelo Ollama ({settings.ollama_model})...")
+                _notify_status_sync(request_id_status, "generating", 75, f"Gerando tópicos com Ollama ({settings.ollama_model})...")
             
             resultado = usar_ollama(transcript, settings.ollama_model, settings.ollama_url, request_id_status)
             if resultado:
                 print(f"[{request_id_status or request_id}] ✓ Tópicos gerados com Ollama ({len(resultado)} caracteres)")
                 if request_id_status:
-                    set_status(request_id_status, "generating", 90, f"Tópicos gerados com Ollama ({len(resultado)} caracteres)")
+                    _notify_status_sync(request_id_status, "generating", 90, f"Tópicos gerados com Ollama ({len(resultado)} caracteres)")
                 output_path.write_text(resultado, encoding="utf-8")
                 return resultado, output_path
             else:
@@ -612,13 +627,14 @@ async def generate_topics_markdown(
         if not resultado:
             print(f"[{request_id_status or request_id}] Tentando usar Hugging Face...")
             if request_id_status:
-                set_status(request_id_status, "generating", 75, "Gerando tópicos com Hugging Face...")
+                _notify_status_sync(request_id_status, "generating", 72, "Carregando modelo Hugging Face...")
+                _notify_status_sync(request_id_status, "generating", 75, "Gerando tópicos com Hugging Face...")
             
             resultado = usar_huggingface(transcript, request_id_status)
             if resultado:
                 print(f"[{request_id_status or request_id}] ✓ Tópicos gerados com Hugging Face ({len(resultado)} caracteres)")
                 if request_id_status:
-                    set_status(request_id_status, "generating", 90, f"Tópicos gerados com Hugging Face ({len(resultado)} caracteres)")
+                    _notify_status_sync(request_id_status, "generating", 90, f"Tópicos gerados com Hugging Face ({len(resultado)} caracteres)")
                 output_path.write_text(resultado, encoding="utf-8")
                 return resultado, output_path
             else:
@@ -628,7 +644,7 @@ async def generate_topics_markdown(
         if not resultado or len(resultado.strip()) < 100:
             print(f"[{request_id_status or request_id}] Usando método simples (fallback)...")
             if request_id_status:
-                set_status(request_id_status, "generating", 80, "Gerando tópicos com método simples...")
+                _notify_status_sync(request_id_status, "generating", 80, "Gerando tópicos com método simples...")
             
             resultado = gerar_topicos_simples(transcript)
             print(f"[{request_id_status or request_id}] ✓ Tópicos gerados com método simples ({len(resultado)} caracteres)")
@@ -644,7 +660,7 @@ async def generate_topics_markdown(
         
         if request_id_status:
             num_topicos = resultado.count("##")
-            set_status(request_id_status, "generating", 92, f"Tópicos formatados: {num_topicos} tópicos identificados")
+            _notify_status_sync(request_id_status, "generating", 92, f"Tópicos formatados: {num_topicos} tópicos identificados")
         
         output_path.write_text(resultado, encoding="utf-8")
         return resultado, output_path
