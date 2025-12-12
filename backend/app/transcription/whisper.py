@@ -10,9 +10,10 @@ from app.transcription.model import get_cached_model
 from app.transcription.utils import notify_status_sync
 
 # Thresholds padronizados para Whisper (usados em múltiplas funções)
-NO_SPEECH_THRESHOLD = 0.6  # Conservador - padrão do Whisper
-LOGPROB_THRESHOLD = -0.5  # Restritivo para filtrar alucinações
-COMPRESSION_RATIO_THRESHOLD = 2.2  # Detecta repetições/alucinações
+# Valores mais restritivos para reduzir alucinações
+NO_SPEECH_THRESHOLD = 0.7  # Mais restritivo - filtra mais silêncio/alucinações
+LOGPROB_THRESHOLD = -0.4  # Mais restritivo - exige maior confiança
+COMPRESSION_RATIO_THRESHOLD = 2.0  # Mais restritivo - detecta repetições mais cedo
 
 
 def detectar_device(settings: Settings) -> str:
@@ -35,17 +36,22 @@ def detectar_device(settings: Settings) -> str:
     return device
 
 
-def criar_opcoes_whisper(device: str, condition_on_previous_text: bool = True) -> dict[str, Any]:
+def criar_opcoes_whisper(
+    device: str,
+    condition_on_previous_text: bool = True,
+    settings: Settings | None = None,
+) -> dict[str, Any]:
     """Cria dicionário de opções para o Whisper.
     
     Args:
         device: Device a ser usado ('cuda' ou 'cpu')
         condition_on_previous_text: Se deve usar contexto anterior
+        settings: Configurações da aplicação (opcional, para parâmetros adicionais)
         
     Returns:
         Dicionário com opções do Whisper
     """
-    return dict(
+    opcoes = dict(
         fp16=True if device == "cuda" else False,
         temperature=0.0,  # Reduz criatividade e alucinações
         condition_on_previous_text=condition_on_previous_text,
@@ -53,6 +59,24 @@ def criar_opcoes_whisper(device: str, condition_on_previous_text: bool = True) -
         logprob_threshold=LOGPROB_THRESHOLD,
         compression_ratio_threshold=COMPRESSION_RATIO_THRESHOLD,
     )
+    
+    # Adiciona parâmetros opcionais se disponíveis nas configurações
+    if settings:
+        # beam_size: melhora qualidade de decodificação (padrão: 5)
+        beam_size = getattr(settings, 'whisper_beam_size', 5)
+        if beam_size and beam_size > 0:
+            opcoes['beam_size'] = beam_size
+        
+        # best_of: escolhe melhor resultado entre múltiplas tentativas (padrão: 5)
+        best_of = getattr(settings, 'whisper_best_of', 5)
+        if best_of and best_of > 0:
+            opcoes['best_of'] = best_of
+        
+        # suppress_tokens: suprime tokens problemáticos (especiais, pontuação excessiva)
+        # [-1] suprime tokens especiais que podem causar alucinações
+        opcoes['suppress_tokens'] = [-1]
+    
+    return opcoes
 
 
 def detectar_loop(result: dict[str, Any], request_id: str | None = None) -> bool:
@@ -74,12 +98,22 @@ def detectar_loop(result: dict[str, Any], request_id: str | None = None) -> bool
         if compression_ratio >= COMPRESSION_RATIO_THRESHOLD:
             segmentos_com_alta_compressao += 1
     
-    # Se mais de 30% dos segmentos têm alta compressão, provável loop
+    # Se mais de 20% dos segmentos têm alta compressão, provável loop (threshold reduzido)
     if len(result["segments"]) > 0:
         percentual_alta_compressao = segmentos_com_alta_compressao / len(result["segments"])
-        if percentual_alta_compressao > 0.3:
+        if percentual_alta_compressao > 0.2:  # Reduzido de 0.3 para 0.2
             print(f"[{request_id or 'N/A'}] Detectado possível loop: "
                   f"{percentual_alta_compressao:.1%} dos segmentos com alta compressão")
+            return True
+    
+    # Verifica repetição de frases completas (não apenas consecutivas)
+    if "segments" in result and len(result["segments"]) > 5:
+        textos_segmentos = [s.get("text", "").strip().lower() for s in result["segments"]]
+        textos_unicos = set(textos_segmentos)
+        # Se menos de 50% dos segmentos são únicos, provável repetição
+        if len(textos_unicos) / len(textos_segmentos) < 0.5:
+            print(f"[{request_id or 'N/A'}] Detectado possível loop: "
+                  f"apenas {len(textos_unicos)} de {len(textos_segmentos)} segmentos únicos")
             return True
     
     return False
@@ -124,11 +158,26 @@ def filtrar_segmentos(result: dict[str, Any], request_id: str | None = None) -> 
         avg_logprob = segmento.get("avg_logprob", -1.0)
         compression_ratio = segmento.get("compression_ratio", 1.0)
         
-        # Usa os mesmos thresholds padronizados
-        if (no_speech_prob < 0.7 and  # Mais conservador que no_speech_threshold
-            avg_logprob > LOGPROB_THRESHOLD and  # Mesmo threshold
-            compression_ratio < COMPRESSION_RATIO_THRESHOLD):  # Mesmo threshold
-            segmentos_validos.append(segmento)
+        # Usa thresholds mais restritivos para filtrar alucinações
+        # no_speech_prob: mais restritivo (0.6 ao invés de 0.7)
+        # avg_logprob: mais restritivo (-0.4 ao invés de -0.5)
+        # compression_ratio: mais restritivo (2.0 ao invés de 2.2)
+        if (no_speech_prob < 0.6 and  # Mais restritivo
+            avg_logprob > -0.4 and  # Mais restritivo
+            compression_ratio < 2.0):  # Mais restritivo
+            # Verifica repetição de palavras dentro do segmento
+            texto_segmento = segmento.get("text", "").strip()
+            palavras = texto_segmento.split()
+            if len(palavras) > 3:
+                # Se mais de 50% das palavras são repetições, filtra
+                palavras_unicas = len(set(palavra.lower() for palavra in palavras))
+                if palavras_unicas / len(palavras) >= 0.5:
+                    segmentos_validos.append(segmento)
+                else:
+                    print(f"[{request_id or 'N/A'}] Segmento filtrado (repetição interna): "
+                          f"texto='{texto_segmento[:50]}...'")
+            else:
+                segmentos_validos.append(segmento)
         else:
             print(f"[{request_id or 'N/A'}] Segmento filtrado (alucinação provável): "
                   f"no_speech={no_speech_prob:.2f}, logprob={avg_logprob:.2f}, "

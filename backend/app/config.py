@@ -12,6 +12,10 @@ class Settings(BaseSettings):
     ollama_url: str = "http://localhost:11434"  # URL do servidor Ollama
     data_dir: Path = Path("/data")
     cors_origins: str = "http://localhost:3000,http://localhost:3002,http://127.0.0.1:3000,http://127.0.0.1:3002,https://voxly.klapowsko.com,https://voxly-api.klapowsko.com,http://voxly.klapowsko.com,http://voxly-api.klapowsko.com"  # Origens permitidas para CORS (separadas por vírgula)
+    transcription_parallel_chunks: bool = True  # Se True, processa chunks em paralelo (padrão: True)
+    whisper_beam_size: int = 5  # Tamanho do beam search para melhor qualidade (padrão: 5)
+    whisper_best_of: int = 5  # Número de tentativas para escolher melhor resultado (padrão: 5)
+    whisper_condition_on_previous_text: bool = True  # Se True, usa contexto anterior (padrão: True, desabilitar para áudios longos)
 
     model_config = SettingsConfigDict(
         env_file=".env",
