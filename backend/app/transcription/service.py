@@ -383,4 +383,3 @@ async def transcribe_file(path: Path, settings: Settings, request_id: str | None
         return {"text": texto_limpo, "language": language or "unknown", "text_en": texto_en_limpo}
 
     return await to_thread.run_sync(_run)
-a
