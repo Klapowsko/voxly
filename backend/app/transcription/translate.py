@@ -5,20 +5,14 @@ from typing import Optional
 
 from transformers import pipeline
 
+from app.transcription.utils import notify_status_sync
+
 
 @lru_cache(maxsize=1)
 def _get_en_to_pt_translator():
     # Modelo público EN -> PT; usa variante tc-big para reduzir risco de lookup inválido
     # https://huggingface.co/Helsinki-NLP/opus-mt-tc-big-en-pt
     return pipeline("translation_en_to_pt", model="Helsinki-NLP/opus-mt-tc-big-en-pt")
-
-
-def _notify_status_sync(request_id: str | None, stage: str, progress: int, message: str) -> None:
-    """Helper para notificar status via WebSocket em contexto síncrono."""
-    if not request_id:
-        return
-    from app.utils.status import notify_status_from_thread
-    notify_status_from_thread(request_id, stage, progress, message)
 
 
 def translate_en_to_pt(text: str, request_id: str | None = None) -> str:
@@ -29,11 +23,11 @@ def translate_en_to_pt(text: str, request_id: str | None = None) -> str:
     if not text:
         return text
     
-    _notify_status_sync(request_id, "transcribing", 62, "Carregando modelo de tradução...")
+    notify_status_sync(request_id, "transcribing", 62, "Carregando modelo de tradução...")
     
     translator = _get_en_to_pt_translator()
     
-    _notify_status_sync(request_id, "transcribing", 63, "Dividindo texto em chunks para tradução...")
+    notify_status_sync(request_id, "transcribing", 63, "Dividindo texto em chunks para tradução...")
     
     # Divide em sentenças para traduzir em chunks menores (modelos têm limite ~512 tokens)
     import re
@@ -55,7 +49,7 @@ def translate_en_to_pt(text: str, request_id: str | None = None) -> str:
     if not chunks:
         chunks = [text]
     
-    _notify_status_sync(request_id, "transcribing", 64, f"Traduzindo {len(chunks)} chunks...")
+    notify_status_sync(request_id, "transcribing", 64, f"Traduzindo {len(chunks)} chunks...")
     
     translated_parts = []
     for i, chunk in enumerate(chunks):
@@ -65,7 +59,7 @@ def translate_en_to_pt(text: str, request_id: str | None = None) -> str:
             # Atualiza progresso a cada chunk
             if request_id and len(chunks) > 1:
                 progress = 64 + int((i + 1) / len(chunks) * 6)  # 64% a 70%
-                _notify_status_sync(request_id, "transcribing", progress, f"Traduzindo chunk {i + 1}/{len(chunks)}...")
+                notify_status_sync(request_id, "transcribing", progress, f"Traduzindo chunk {i + 1}/{len(chunks)}...")
             
             outputs = translator(chunk, max_length=512, truncation=True)
             if outputs and isinstance(outputs, list):
@@ -78,7 +72,7 @@ def translate_en_to_pt(text: str, request_id: str | None = None) -> str:
             # Em caso de erro em um chunk, mantém o original
             translated_parts.append(chunk)
     
-    _notify_status_sync(request_id, "transcribing", 70, "Tradução concluída")
+    notify_status_sync(request_id, "transcribing", 70, "Tradução concluída")
     
     result = " ".join(translated_parts)
     return result if result else text

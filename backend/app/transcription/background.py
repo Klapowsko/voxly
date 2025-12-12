@@ -1,15 +1,17 @@
-"""Processamento em background de transcrições."""
-import asyncio
+"""Orquestração do pipeline completo de processamento de transcrição."""
 import logging
+
 from pathlib import Path
 
 from app.config import Settings
-from app.models.history_store import HistoryStore, TranscriptionRecord, build_preview, now_iso
-from app.topics.service import generate_topics_markdown, generate_title
-from app.transcription.service import transcribe_file
-from app.transcription.translate import translate_en_to_pt
-from app.utils.status import set_status, update_status_with_websocket
-from app.websocket.manager import websocket_manager
+from app.transcription.pipeline import (
+    processar_titulo,
+    processar_topicos,
+    processar_traducao,
+    processar_transcricao,
+)
+from app.transcription.storage import atualizar_historico, salvar_arquivos, tratar_erro
+from app.utils.status import update_status_with_websocket
 
 logger = logging.getLogger(__name__)
 
@@ -20,141 +22,70 @@ async def process_transcription_async(
     filename: str,
     settings: Settings,
 ) -> None:
-    """Processa transcrição em background de forma assíncrona."""
+    """Processa transcrição em background de forma assíncrona.
+    
+    Args:
+        request_id: ID da requisição
+        audio_path: Caminho do arquivo de áudio
+        filename: Nome do arquivo original
+        settings: Configurações da aplicação
+    """
     try:
         # Notifica início do processamento
         await update_status_with_websocket(
             request_id, "processing", 10, "Iniciando transcrição..."
         )
-
-        # Upload já foi feito, começa pela transcrição
-        await update_status_with_websocket(
-            request_id, "transcribing", 20, "Iniciando transcrição com Whisper..."
+        
+        # Etapa 1: Transcrição
+        transcription_data = await processar_transcricao(request_id, audio_path, settings)
+        transcript_text = transcription_data["text"]
+        language_detected = transcription_data["language"]
+        transcript_en = transcription_data["text_en"]
+        
+        # Etapa 2: Tradução (se necessário)
+        transcript_pt, translated = await processar_traducao(
+            request_id, transcript_text, transcript_en, language_detected
         )
-
-        # Executa transcrição (já é async, mas Whisper roda em thread)
-        transcription_result = await transcribe_file(audio_path, settings=settings, request_id=request_id)
-
-        transcript_text = transcription_result.get("text", "") or ""
-        language_detected = (transcription_result.get("language") or "unknown").lower()
-        transcript_en = transcription_result.get("text_en") or ""
-
-        await update_status_with_websocket(
-            request_id,
-            "transcribing",
-            60,
-            f"Transcrição ({language_detected}) concluída com {len(transcript_text)} caracteres",
+        transcript_original = transcript_text if translated else None
+        
+        # Etapa 3: Geração de tópicos
+        markdown_content, markdown_path = await processar_topicos(
+            request_id, transcript_pt, settings
         )
-
-        # Tradução automática para PT-BR se não for pt
-        translated = False
-        transcript_original = transcript_text
-        transcript_pt = transcript_text
-
-        if language_detected not in {"pt", "pt-br"}:
-            translated = True
-            text_to_translate = transcript_en if transcript_en else transcript_text
-            if text_to_translate:
-                await update_status_with_websocket(
-                    request_id, "processing", 62, "Traduzindo para PT-BR..."
-                )
-                transcript_pt = translate_en_to_pt(text_to_translate, request_id=request_id)
-                if not transcript_pt or transcript_pt.strip() == text_to_translate.strip():
-                    transcript_pt = transcript_text
-                    translated = False
-
-        # Geração de tópicos
-        await update_status_with_websocket(
-            request_id, "generating", 70, "Iniciando geração de tópicos..."
-        )
-
-        markdown_content, markdown_path = await generate_topics_markdown(
-            transcript_pt,
-            settings=settings,
-            request_id=request_id,
-            request_id_status=request_id,
-        )
-
-        await update_status_with_websocket(
-            request_id, "generating", 95, "Tópicos gerados com sucesso!"
-        )
-        logger.info(f"[{request_id}] Tópicos gerados, salvando arquivos...")
-
-        # Gera título para a transcrição
-        await update_status_with_websocket(
-            request_id, "processing", 93, "Gerando título descritivo..."
-        )
-        logger.info(f"[{request_id}] Gerando título...")
-        generated_title = generate_title(transcript_pt, settings=settings, request_id=request_id)
-        # Se não gerou título ou está vazio, usa o filename como fallback
-        title = generated_title.strip() if generated_title else filename
-        # Limita tamanho do título
-        if len(title) > 80:
-            title = title[:77] + "..."
-        logger.info(f"[{request_id}] Título gerado: {title}")
-
-        # Salva arquivos
+        
+        # Etapa 4: Geração de título
+        title = await processar_titulo(request_id, transcript_pt, filename, settings)
+        
+        # Etapa 5: Salvamento de arquivos
         await update_status_with_websocket(
             request_id, "processing", 95, "Salvando arquivos..."
         )
-        transcript_path = settings.outputs_dir / f"{request_id}_transcript.txt"
-        transcript_path.write_text(transcript_pt, encoding="utf-8")
-        logger.info(f"[{request_id}] Transcript salvo: {transcript_path}")
-
-        transcript_original_path = None
-        if translated:
-            transcript_original_path = settings.outputs_dir / f"{request_id}_transcript_original.txt"
-            transcript_original_path.write_text(transcript_original, encoding="utf-8")
-            logger.info(f"[{request_id}] Transcript original salvo: {transcript_original_path}")
-
-        # Atualiza histórico com status "done"
-        await update_status_with_websocket(
-            request_id, "processing", 98, "Atualizando histórico..."
+        transcript_path, transcript_original_path = salvar_arquivos(
+            request_id, transcript_pt, transcript_original, translated, settings
         )
-        logger.info(f"[{request_id}] Atualizando histórico...")
-        store = HistoryStore(settings.data_dir)
-        store.add(
-            TranscriptionRecord(
-                id=request_id,
-                filename=filename,
-                created_at=now_iso(),
-                audio_path=str(audio_path),
-                transcript_path=str(transcript_path),
-                markdown_path=str(markdown_path),
-                transcript_preview=build_preview(transcript_pt),
-                status="done",
-                language_detected=language_detected,
-                translated=translated,
-                transcript_original_path=str(transcript_original_path) if transcript_original_path else None,
-                title=title,
-            )
+        
+        # Etapa 6: Atualização do histórico
+        await atualizar_historico(
+            request_id=request_id,
+            filename=filename,
+            audio_path=audio_path,
+            transcript_path=transcript_path,
+            markdown_path=markdown_path,
+            transcript_pt=transcript_pt,
+            language_detected=language_detected,
+            translated=translated,
+            transcript_original_path=transcript_original_path,
+            title=title,
+            settings=settings,
         )
-        logger.info(f"[{request_id}] Histórico atualizado")
-
+        
         # Notifica conclusão
         logger.info(f"[{request_id}] Enviando notificação de conclusão via WebSocket...")
         await update_status_with_websocket(
             request_id, "done", 100, "Processamento concluído!"
         )
-
+        
         logger.info(f"[{request_id}] Processamento concluído para request_id: {request_id}")
-
+        
     except Exception as e:
-        logger.error(f"Erro ao processar transcrição {request_id}: {e}", exc_info=True)
-        error_message = str(e)
-
-        # Atualiza histórico com status "error"
-        store = HistoryStore(settings.data_dir)
-        existing = store.get(request_id)
-        if existing:
-            existing.status = "error"
-            existing.error_message = error_message
-            store.add(existing)
-
-        # Notifica erro
-        await update_status_with_websocket(
-            request_id, "error", 0, f"Erro: {error_message}"
-        )
-
-
-
+        await tratar_erro(request_id, e, settings)
