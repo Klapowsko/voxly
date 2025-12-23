@@ -20,6 +20,7 @@ class Settings(BaseSettings):
         env_file=".env",
         env_prefix="APP_",
         case_sensitive=False,
+        extra="ignore",  # Ignora campos extras do .env que não existem mais no modelo
     )
 
     @property
