@@ -101,83 +101,109 @@ def formatar_resultado_ia(texto: str) -> str:
     return texto.strip()
 
 
-def usar_ollama(texto: str, modelo: str = "llama3.2", ollama_url: str = "http://localhost:11434", request_id: str | None = None) -> str | None:
-    """Usa Ollama para gerar tópicos (requer servidor Ollama rodando)."""
+def usar_spellbook(texto: str, spellbook_url: str, request_id: str | None = None) -> str | None:
+    """Usa Spellbook (serviço externo) para gerar tópicos via API HTTP."""
     try:
-        import ollama
+        import requests
     except ImportError:
-        print(f"[{request_id or 'N/A'}] Ollama não disponível (biblioteca não instalada)")
+        print(f"[{request_id or 'N/A'}] Biblioteca requests não disponível")
         return None
     
-    # Usa o texto completo ou o máximo que o modelo suportar
-    # Para modelos grandes, podemos usar textos muito longos
-    # Limite aumentado significativamente para suportar áudios longos
-    texto_limitado = texto[:100000] if len(texto) > 100000 else texto
-    if len(texto) > 100000:
+    # Limita o texto para evitar requisições muito grandes
+    # O Spellbook pode processar textos longos, mas vamos limitar para performance
+    texto_limitado = texto[:50000] if len(texto) > 50000 else texto
+    if len(texto) > 50000:
         print(f"[{request_id or 'N/A'}] Texto limitado para {len(texto_limitado)} caracteres (original: {len(texto)})")
     
-    prompt = PROMPT_TOPICOS.format(texto=texto_limitado)
-    print(f"[{request_id or 'N/A'}] Enviando prompt para Ollama (tamanho: {len(prompt)} caracteres)...")
+    # Calcula número de tópicos baseado no tamanho do texto
+    # Aproximadamente 1 tópico para cada 1000 palavras
+    num_palavras = len(texto_limitado.split())
+    count = max(10, min(30, num_palavras // 1000))  # Entre 10 e 30 tópicos
+    
+    # Garante que a URL não tenha barra final duplicada
+    url_base = spellbook_url.rstrip('/')
+    endpoint = f"{url_base}/topics"
+    
+    print(f"[{request_id or 'N/A'}] Enviando requisição para Spellbook ({endpoint}) - {len(texto_limitado)} caracteres, {count} tópicos...")
     
     try:
-        # Tenta usar a biblioteca ollama
-        print(f"[{request_id or 'N/A'}] Chamando Ollama.chat() com modelo {modelo}...")
-        response = ollama.chat(
-            model=modelo,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Você é um especialista em análise de conteúdo, organização de informações e formatação de textos. Sempre siga as instruções detalhadamente. Gere MÚLTIPLOS tópicos com conteúdo substancial e comentários analíticos."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            options={
-                "temperature": 0.4,  # Um pouco mais de criatividade para comentários
-                "num_predict": 16000,  # Permite respostas muito longas para conteúdos extensos
-            }
+        response = requests.post(
+            endpoint,
+            json={
+                "subject": texto_limitado,
+                "count": count
+            },
+            headers={"Content-Type": "application/json"},
+            timeout=120  # 2 minutos para requisições externas
         )
-        resultado = response["message"]["content"]
-        print(f"[{request_id or 'N/A'}] Resposta recebida do Ollama: {len(resultado)} caracteres")
-        return formatar_resultado_ia(resultado)
-    except Exception as e:
-        print(f"[{request_id or 'N/A'}] Erro ao usar biblioteca Ollama: {e}")
-        # Se falhar, tenta usar API HTTP diretamente
-        try:
-            print(f"[{request_id or 'N/A'}] Tentando usar API HTTP do Ollama...")
-            import requests
-            response = requests.post(
-                f"{ollama_url}/api/chat",
-                json={
-                    "model": modelo,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "Você é um especialista em análise de conteúdo, organização de informações e formatação de textos. Sempre siga as instruções detalhadamente."
-                        },
-                        {"role": "user", "content": prompt}
-                    ],
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.4,
-                        "num_predict": 16000,
-                    }
-                },
-                timeout=600  # 10 minutos
-            )
-            if response.status_code == 200:
-                resultado = response.json()["message"]["content"]
-                print(f"[{request_id or 'N/A'}] Resposta recebida via HTTP: {len(resultado)} caracteres")
-                return formatar_resultado_ia(resultado)
-            else:
-                print(f"[{request_id or 'N/A'}] Erro HTTP do Ollama: {response.status_code}")
-        except Exception as e:
-            print(f"[{request_id or 'N/A'}] Erro ao usar API HTTP do Ollama: {e}")
+        
+        if response.status_code == 200:
+            data = response.json()
+            topics = data.get("topics", [])
+            
+            if not topics:
+                print(f"[{request_id or 'N/A'}] Spellbook retornou lista vazia de tópicos")
+                return None
+            
+            print(f"[{request_id or 'N/A'}] Spellbook retornou {len(topics)} tópicos")
+            
+            # Converte lista de tópicos para markdown
+            # Para cada tópico, busca conteúdo relacionado no texto original
+            markdown_content = ""
+            
+            for i, topic in enumerate(topics, 1):
+                # Adiciona o tópico como header
+                markdown_content += f"## {topic}\n\n"
+                
+                # Busca conteúdo relacionado no texto original
+                # Extrai palavras-chave do tópico
+                palavras_topic = set(re.findall(r"\b\w{4,}\b", topic.lower()))
+                
+                # Divide texto em sentenças
+                sentencas = re.split(r'[.!?]+', texto_limitado)
+                
+                # Encontra sentenças relacionadas ao tópico
+                sentencas_relacionadas = []
+                for sentenca in sentencas:
+                    if len(sentenca.strip()) < 20:
+                        continue
+                    sentenca_lower = sentenca.lower()
+                    palavras_sentenca = set(re.findall(r"\b\w{4,}\b", sentenca_lower))
+                    
+                    # Calcula interseção de palavras
+                    palavras_comuns = palavras_topic & palavras_sentenca
+                    if len(palavras_comuns) >= 2:
+                        sentencas_relacionadas.append(sentenca.strip())
+                
+                # Adiciona conteúdo relacionado (máximo 3 sentenças)
+                if sentencas_relacionadas:
+                    conteudo = " ".join(sentencas_relacionadas[:3])
+                    if len(conteudo) > 500:
+                        conteudo = conteudo[:497] + "..."
+                    markdown_content += f"{conteudo}\n\n"
+                else:
+                    # Se não encontrar conteúdo relacionado, adiciona uma nota
+                    markdown_content += f"*Conteúdo relacionado a este tópico no texto original.*\n\n"
+            
+            resultado = markdown_content.strip()
+            print(f"[{request_id or 'N/A'}] Markdown gerado: {len(resultado)} caracteres")
+            return formatar_resultado_ia(resultado)
+        else:
+            print(f"[{request_id or 'N/A'}] Erro HTTP do Spellbook: {response.status_code} - {response.text[:200]}")
             return None
-    
-    return None
+            
+    except requests.exceptions.Timeout:
+        print(f"[{request_id or 'N/A'}] Timeout ao chamar Spellbook (serviço pode estar lento)")
+        return None
+    except requests.exceptions.ConnectionError:
+        print(f"[{request_id or 'N/A'}] Erro de conexão com Spellbook (serviço não disponível?)")
+        return None
+    except requests.exceptions.RequestException as e:
+        print(f"[{request_id or 'N/A'}] Erro na requisição ao Spellbook: {e}")
+        return None
+    except Exception as e:
+        print(f"[{request_id or 'N/A'}] Erro inesperado ao usar Spellbook: {e}")
+        return None
 
 
 def usar_huggingface(texto: str, request_id: str | None = None) -> str | None:
@@ -588,7 +614,7 @@ def gerar_topicos_simples(texto: str) -> str:
 async def generate_topics_markdown(
     transcript: str, settings: Settings, request_id: str, request_id_status: str | None = None
 ) -> tuple[str, Path]:
-    """Gera conteúdo em Markdown usando modelos open source (Ollama/Hugging Face/método simples)."""
+    """Gera conteúdo em Markdown usando Spellbook (serviço externo) com fallback para Hugging Face e método simples."""
     output_path = settings.outputs_dir / f"{request_id}_topics.md"
     
     def _run() -> tuple[str, Path]:
@@ -606,24 +632,23 @@ async def generate_topics_markdown(
         if request_id_status:
             _notify_status_sync(request_id_status, "generating", 70, f"Analisando texto ({num_palavras} palavras)...")
         
-        # Tenta Ollama primeiro
-        if settings.ollama_model:
-            print(f"[{request_id_status or request_id}] Tentando usar Ollama (modelo: {settings.ollama_model})...")
-            if request_id_status:
-                _notify_status_sync(request_id_status, "generating", 72, f"Carregando modelo Ollama ({settings.ollama_model})...")
-                _notify_status_sync(request_id_status, "generating", 75, f"Gerando tópicos com Ollama ({settings.ollama_model})...")
-            
-            resultado = usar_ollama(transcript, settings.ollama_model, settings.ollama_url, request_id_status)
-            if resultado:
-                print(f"[{request_id_status or request_id}] ✓ Tópicos gerados com Ollama ({len(resultado)} caracteres)")
-                if request_id_status:
-                    _notify_status_sync(request_id_status, "generating", 90, f"Tópicos gerados com Ollama ({len(resultado)} caracteres)")
-                output_path.write_text(resultado, encoding="utf-8")
-                return resultado, output_path
-            else:
-                print(f"[{request_id_status or request_id}] Ollama não disponível ou falhou")
+        # Tenta Spellbook primeiro (serviço externo)
+        print(f"[{request_id_status or request_id}] Tentando usar Spellbook ({settings.spellbook_url})...")
+        if request_id_status:
+            _notify_status_sync(request_id_status, "generating", 72, "Conectando com Spellbook...")
+            _notify_status_sync(request_id_status, "generating", 75, "Gerando tópicos com Spellbook...")
         
-        # Se Ollama não funcionou, tenta Hugging Face
+        resultado = usar_spellbook(transcript, settings.spellbook_url, request_id_status)
+        if resultado:
+            print(f"[{request_id_status or request_id}] ✓ Tópicos gerados com Spellbook ({len(resultado)} caracteres)")
+            if request_id_status:
+                _notify_status_sync(request_id_status, "generating", 90, f"Tópicos gerados com Spellbook ({len(resultado)} caracteres)")
+            output_path.write_text(resultado, encoding="utf-8")
+            return resultado, output_path
+        else:
+            print(f"[{request_id_status or request_id}] Spellbook não disponível ou falhou")
+        
+        # Se Spellbook não funcionou, tenta Hugging Face
         if not resultado:
             print(f"[{request_id_status or request_id}] Tentando usar Hugging Face...")
             if request_id_status:
@@ -750,74 +775,6 @@ def usar_huggingface_titulo(texto: str, request_id: str | None = None) -> str | 
         return None
 
 
-def usar_ollama_titulo(texto: str, modelo: str = "llama3.2", ollama_url: str = "http://localhost:11434", request_id: str | None = None) -> str | None:
-    """Usa Ollama para gerar título."""
-    try:
-        import ollama
-    except ImportError:
-        return None
-    
-    try:
-        # Usa mais texto para melhor interpretação (até 4000 caracteres)
-        prompt = PROMPT_TITULO.format(texto=texto[:4000] if len(texto) > 4000 else texto)
-        response = ollama.chat(
-            model=modelo,
-            messages=[
-                {
-                    "role": "system",
-                    "content": "Você é um especialista em análise de conteúdo e criação de títulos. Sempre INTERPRETE o conteúdo e crie um título original que sintetize a ideia principal. NUNCA copie pedaços do texto diretamente. Gere apenas o título, sem aspas ou formatação."
-                },
-                {
-                    "role": "user",
-                    "content": prompt
-                }
-            ],
-            options={
-                "temperature": 0.3,
-                "num_predict": 100,  # Títulos são curtos
-            }
-        )
-        resultado = response["message"]["content"].strip()
-        # Remove aspas se houver
-        resultado = resultado.strip('"').strip("'").strip()
-        # Limita tamanho
-        if len(resultado) > 80:
-            resultado = resultado[:77] + "..."
-        return resultado if resultado else None
-    except Exception:
-        # Tenta API HTTP
-        try:
-            import requests
-            response = requests.post(
-                f"{ollama_url}/api/chat",
-                json={
-                    "model": modelo,
-                    "messages": [
-                        {
-                            "role": "system",
-                            "content": "Você é um especialista em análise de conteúdo e criação de títulos. Sempre INTERPRETE o conteúdo e crie um título original que sintetize a ideia principal. NUNCA copie pedaços do texto diretamente."
-                        },
-                        {"role": "user", "content": prompt}
-                    ],
-                    "stream": False,
-                    "options": {
-                        "temperature": 0.3,
-                        "num_predict": 100,
-                    }
-                },
-                timeout=30
-            )
-            if response.status_code == 200:
-                resultado = response.json()["message"]["content"].strip()
-                resultado = resultado.strip('"').strip("'").strip()
-                if len(resultado) > 80:
-                    resultado = resultado[:77] + "..."
-                return resultado if resultado else None
-        except Exception:
-            pass
-    return None
-
-
 def generate_title(transcript: str, settings: Settings, request_id: str | None = None) -> str:
     """Gera título descritivo para a transcrição usando IA.
     
@@ -829,14 +786,7 @@ def generate_title(transcript: str, settings: Settings, request_id: str | None =
     
     print(f"[{request_id or 'N/A'}] Gerando título interpretando conteúdo...")
     
-    # Tenta Ollama primeiro (melhor para interpretação)
-    if settings.ollama_model:
-        resultado = usar_ollama_titulo(transcript, settings.ollama_model, settings.ollama_url, request_id)
-        if resultado and len(resultado.strip()) > 5:
-            print(f"[{request_id or 'N/A'}] ✓ Título gerado com Ollama: {resultado}")
-            return resultado
-    
-    # Se Ollama não funcionou, tenta Hugging Face (sumarização)
+    # Tenta Hugging Face (sumarização)
     resultado = usar_huggingface_titulo(transcript, request_id)
     if resultado and len(resultado.strip()) > 5:
         print(f"[{request_id or 'N/A'}] ✓ Título gerado com Hugging Face: {resultado}")

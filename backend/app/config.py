@@ -8,8 +8,7 @@ class Settings(BaseSettings):
     api_token: str = "dev-token"
     whisper_model: str = "base"  # Modelos: tiny, base, small, medium, large
     whisper_device: str = "auto"  # auto, cuda, cpu
-    ollama_model: str | None = "llama3.2"  # None para desabilitar Ollama
-    ollama_url: str = "http://localhost:11434"  # URL do servidor Ollama
+    spellbook_url: str = "https://spellbook-api.klapowsko.com"  # URL do serviço Spellbook
     data_dir: Path = Path("/data")
     cors_origins: str = "http://localhost:3000,http://localhost:3002,http://127.0.0.1:3000,http://127.0.0.1:3002,https://voxly.klapowsko.com,https://voxly-api.klapowsko.com,http://voxly.klapowsko.com,http://voxly-api.klapowsko.com"  # Origens permitidas para CORS (separadas por vírgula)
     transcription_parallel_chunks: bool = True  # Se True, processa chunks em paralelo (padrão: True)

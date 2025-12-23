@@ -10,7 +10,7 @@ Aplicação completa para gravar áudio, transcrever usando Whisper (open source
 - **Backend**: FastAPI (Python) com arquitetura modular
   - `app/audio`: Gerenciamento de upload e armazenamento de áudios
   - `app/transcription`: Serviço de transcrição usando Whisper local (openai-whisper)
-  - `app/topics`: Geração de tópicos em Markdown usando Ollama/Hugging Face/método simples
+  - `app/topics`: Geração de tópicos em Markdown usando Spellbook/Hugging Face/método simples
   - `app/api`: Rotas da API REST
 
 A arquitetura modular permite fácil extração em microserviços no futuro.
@@ -19,7 +19,7 @@ A arquitetura modular permite fácil extração em microserviços no futuro.
 
 - Docker e Docker Compose instalados
 - Navegador moderno com suporte a MediaRecorder API
-- (Opcional) Ollama instalado e rodando para melhor qualidade na geração de tópicos
+- API Key do Google Gemini (para o serviço Spellbook)
 - (Recomendado para áudios longos) GPU NVIDIA com CUDA para processamento mais rápido
 
 ## 🚀 Início Rápido
@@ -35,13 +35,13 @@ cp frontend/env.example frontend/.env
 
 Edite os arquivos `.env` se necessário. Por padrão, usa modelos open source:
 - Whisper local (openai-whisper) para transcrição
-- Ollama (opcional) ou Hugging Face para geração de tópicos
+- Spellbook (serviço de IA) para geração de tópicos
+- Hugging Face como fallback
 
-**Opcional - Para melhor qualidade nos tópicos, instale Ollama:**
+**Configure a URL do Spellbook:**
 ```bash
-# Instale Ollama: https://ollama.ai
-# Baixe um modelo:
-ollama pull llama3.2
+# No arquivo backend/.env:
+APP_SPELLBOOK_URL=https://spellbook-api.klapowsko.com
 ```
 
 2. **Inicie os serviços:**
@@ -110,11 +110,10 @@ O sistema suporta áudios de qualquer duração, incluindo:
 - `APP_API_TOKEN`: Token de autenticação para a API (padrão: `dev-token`)
 - `APP_WHISPER_MODEL`: Modelo Whisper local a usar - `tiny`, `base`, `small`, `medium`, `large` (padrão: `base`)
 - `APP_WHISPER_DEVICE`: Device para Whisper - `auto`, `cuda`, `cpu` (padrão: `auto`)
-- `APP_OLLAMA_MODEL`: Modelo Ollama para tópicos, ou `None` para desabilitar (padrão: `llama3.2`)
-- `APP_OLLAMA_URL`: URL do servidor Ollama (padrão: `http://localhost:11434`)
+- `APP_SPELLBOOK_URL`: URL do serviço Spellbook (padrão: `https://spellbook-api.klapowsko.com`)
 - `APP_DATA_DIR`: Diretório para armazenar arquivos (padrão: `/data`)
 
-**Nota**: Se Ollama não estiver disponível, o sistema usa Hugging Face como fallback, e por último um método simples sem IA.
+**Nota**: Se Spellbook não estiver disponível, o sistema usa Hugging Face como fallback, e por último um método simples sem IA.
 
 #### Frontend (`frontend/.env`)
 
