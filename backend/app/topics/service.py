@@ -151,39 +151,79 @@ def usar_spellbook(texto: str, spellbook_url: str, request_id: str | None = None
             # Para cada tópico, busca conteúdo relacionado no texto original
             markdown_content = ""
             
+            # Divide texto em sentenças uma vez (mais eficiente)
+            sentencas = [s.strip() for s in re.split(r'[.!?]+', texto_limitado) if len(s.strip()) >= 20]
+            
             for i, topic in enumerate(topics, 1):
+                # Limpa o tópico (remove quebras de linha e espaços extras)
+                topic_limpo = re.sub(r'\s+', ' ', topic.strip())
+                
                 # Adiciona o tópico como header
-                markdown_content += f"## {topic}\n\n"
+                markdown_content += f"## {topic_limpo}\n\n"
                 
                 # Busca conteúdo relacionado no texto original
-                # Extrai palavras-chave do tópico
-                palavras_topic = set(re.findall(r"\b\w{4,}\b", topic.lower()))
+                # Extrai palavras-chave do tópico (palavras de 3+ letras para melhor matching)
+                palavras_topic = set(re.findall(r"\b\w{3,}\b", topic_limpo.lower()))
                 
-                # Divide texto em sentenças
-                sentencas = re.split(r'[.!?]+', texto_limitado)
+                # Remove palavras muito comuns que não ajudam no matching
+                palavras_comuns = {
+                    "que", "com", "para", "uma", "uma", "sobre", "como", "mais", "muito",
+                    "isso", "aqui", "onde", "quando", "será", "seria", "tempo", "pode",
+                    "também", "ainda", "sempre", "nunca", "depois", "antes", "agora",
+                    "então", "assim", "dessa", "desse", "deste", "desta", "todo", "toda",
+                    "este", "esta", "esse", "essa", "aquele", "aquela", "são", "foi", "ser"
+                }
+                palavras_topic = {p for p in palavras_topic if p not in palavras_comuns and len(p) >= 3}
                 
                 # Encontra sentenças relacionadas ao tópico
                 sentencas_relacionadas = []
                 for sentenca in sentencas:
-                    if len(sentenca.strip()) < 20:
-                        continue
                     sentenca_lower = sentenca.lower()
-                    palavras_sentenca = set(re.findall(r"\b\w{4,}\b", sentenca_lower))
+                    # Extrai palavras da sentença (3+ letras)
+                    palavras_sentenca = set(re.findall(r"\b\w{3,}\b", sentenca_lower))
+                    palavras_sentenca = {p for p in palavras_sentenca if p not in palavras_comuns and len(p) >= 3}
                     
                     # Calcula interseção de palavras
                     palavras_comuns = palavras_topic & palavras_sentenca
-                    if len(palavras_comuns) >= 2:
-                        sentencas_relacionadas.append(sentenca.strip())
+                    
+                    # Se houver pelo menos 1 palavra-chave em comum (mais permissivo)
+                    # ou se o tópico contém palavras importantes da sentença
+                    if len(palavras_comuns) >= 1:
+                        # Calcula score de relevância (mais palavras em comum = mais relevante)
+                        score = len(palavras_comuns)
+                        sentencas_relacionadas.append((score, sentenca))
                 
-                # Adiciona conteúdo relacionado (máximo 3 sentenças)
+                # Ordena por relevância (maior score primeiro)
+                sentencas_relacionadas.sort(key=lambda x: x[0], reverse=True)
+                
+                # Adiciona conteúdo relacionado (máximo 5 sentenças mais relevantes)
                 if sentencas_relacionadas:
-                    conteudo = " ".join(sentencas_relacionadas[:3])
-                    if len(conteudo) > 500:
-                        conteudo = conteudo[:497] + "..."
+                    conteudo_sentencas = [s[1] for s in sentencas_relacionadas[:5]]
+                    conteudo = " ".join(conteudo_sentencas)
+                    if len(conteudo) > 800:
+                        conteudo = conteudo[:797] + "..."
                     markdown_content += f"{conteudo}\n\n"
                 else:
-                    # Se não encontrar conteúdo relacionado, adiciona uma nota
-                    markdown_content += f"*Conteúdo relacionado a este tópico no texto original.*\n\n"
+                    # Se não encontrar conteúdo relacionado, tenta uma busca mais ampla
+                    # Procura por qualquer palavra do tópico no texto
+                    palavras_importantes = [p for p in palavras_topic if len(p) >= 4][:3]
+                    if palavras_importantes:
+                        # Busca sentenças que contenham pelo menos uma palavra importante
+                        sentencas_fallback = []
+                        for sentenca in sentencas:
+                            sentenca_lower = sentenca.lower()
+                            if any(palavra in sentenca_lower for palavra in palavras_importantes):
+                                sentencas_fallback.append(sentenca)
+                        
+                        if sentencas_fallback:
+                            conteudo = " ".join(sentencas_fallback[:3])
+                            if len(conteudo) > 500:
+                                conteudo = conteudo[:497] + "..."
+                            markdown_content += f"{conteudo}\n\n"
+                        else:
+                            markdown_content += f"*Conteúdo relacionado a este tópico no texto original.*\n\n"
+                    else:
+                        markdown_content += f"*Conteúdo relacionado a este tópico no texto original.*\n\n"
             
             resultado = markdown_content.strip()
             print(f"[{request_id or 'N/A'}] Markdown gerado: {len(resultado)} caracteres")
@@ -692,7 +732,6 @@ async def generate_topics_markdown(
     
     return await to_thread.run_sync(_run)
 
-
 PROMPT_TITULO = """Analise e interprete o seguinte texto transcrito de um áudio. Identifique o tema principal, a mensagem central e o contexto do conteúdo.
 
 IMPORTANTE:
@@ -796,3 +835,4 @@ def generate_title(transcript: str, settings: Settings, request_id: str | None =
     # O fallback para filename será feito em background.py
     print(f"[{request_id or 'N/A'}] Não foi possível gerar título com IA, usando filename como fallback")
     return ""
+
