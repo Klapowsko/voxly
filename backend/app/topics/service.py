@@ -18,10 +18,15 @@ def formatar_resultado_ia(texto: str) -> str:
     """Formata o resultado da IA para garantir qualidade."""
     # Remove espaços múltiplos
     texto = re.sub(r" +", " ", texto)
-    # Garante quebra de linha após títulos
-    texto = re.sub(r"(## .+?)([^\n])", r"\1\n\2", texto)
+    # Remove quebras de linha dentro de títulos (## T\nítulo -> ## Título)
+    # Procura por ## seguido de qualquer coisa até encontrar uma quebra de linha, e depois mais texto na próxima linha (que não seja outro título ou espaço)
+    texto = re.sub(r"(## [^\n]+)\n([^\n#\s])", r"\1 \2", texto)
+    # Garante quebra de linha dupla após títulos completos (após o título terminar, antes de conteúdo)
+    texto = re.sub(r"(## [^\n]+)\n+([A-Z])", r"\1\n\n\2", texto)
     # Garante parágrafos (quebra dupla após parágrafos longos)
     texto = re.sub(r"\. ([A-Z][^.!?]{50,})", r".\n\n\1", texto)
+    # Remove múltiplas quebras de linha consecutivas (mais de 2)
+    texto = re.sub(r"\n{3,}", r"\n\n", texto)
     return texto.strip()
 
 
@@ -80,9 +85,12 @@ def usar_spellbook(texto: str, spellbook_url: str, request_id: str | None = None
             
             for i, topic in enumerate(topics, 1):
                 # Limpa o tópico (remove quebras de linha e espaços extras)
+                # Remove todas as quebras de linha e substitui por espaços
                 topic_limpo = re.sub(r'\s+', ' ', topic.strip())
+                # Remove espaços no início e fim
+                topic_limpo = topic_limpo.strip()
                 
-                # Adiciona o tópico como header
+                # Adiciona o tópico como header (garantindo que não há quebras de linha no título)
                 markdown_content += f"## {topic_limpo}\n\n"
                 
                 # Busca conteúdo relacionado no texto original
